@@ -11,28 +11,28 @@
 #'
 #' @return A list with the elements:
 #' \describe{
-#'   \item{\code{levelSizes}}{An integer vector of length \code{l+1}, where \code{levelSizes[d+1] = k^d}.}
-#'   \item{\code{levelOffsets}}{An integer vector of length \code{l+1}, where
-#'       \code{levelOffsets[d+1]} is the total number of nodes up to (but not including) level \code{d}.}
+#'   \item{\code{level_sizes}}{An integer vector of length \code{l+1}, where \code{level_sizes[d+1] = k^d}.}
+#'   \item{\code{level_offsets}}{An integer vector of length \code{l+1}, where
+#'       \code{level_offsets[d+1]} is the total number of nodes up to (but not including) level \code{d}.}
 #'   \item{\code{nTot}}{The total number of nodes in the tree, \eqn{\sum_{d=0}^{l} k^d}.}
 #' }
 #'
 #' @examples
 #' # For k=2, l=3, we have a binary tree of depth 3
 #' info <- get_level_info(k = 2, l = 3)
-#' info$levelSizes # c(1, 2, 4, 8)
-#' info$levelOffsets # c(0, 1, 3, 7)
+#' info$level_sizes # c(1, 2, 4, 8)
+#' info$level_offsets # c(0, 1, 3, 7)
 #' info$nTot # 15 total nodes
 #'
 #' @export
 get_level_info <- function(k, l) {
-  levelSizes <- k^(0:l)
-  levelOffsets <- cumsum(c(0, levelSizes[1:l]))
-  nTot <- sum(levelSizes)
+  level_sizes <- k^(0:l)
+  level_offsets <- cumsum(c(0, level_sizes[1:l]))
+  nTot <- sum(level_sizes)
   list(
-    levelSizes   = levelSizes,
-    levelOffsets = levelOffsets,
-    nTot         = nTot
+    level_sizes = level_sizes,
+    level_offsets = level_offsets,
+    nTot = nTot
   )
 }
 
@@ -44,7 +44,7 @@ get_level_info <- function(k, l) {
 #' @param d Integer; the current level of the node (0-based).
 #' @param j Integer; the node's local index within level \code{d} (1-based).
 #' @param k Integer; the branching factor of the tree.
-#' @param levelOffsets Integer vector of length \code{l+1}, as returned by \code{\link{get_level_info}}.
+#' @param level_offsets Integer vector of length \code{l+1}, as returned by \code{\link{get_level_info}}.
 #'
 #' @details We assume a level-by-level storage scheme:
 #'   \itemize{
@@ -61,11 +61,11 @@ get_level_info <- function(k, l) {
 #' @examples
 #' info <- get_level_info(k = 2, l = 2)
 #' # Root is at level d=0, j=1 => children are global indices 2 and 3
-#' children_indices(d = 0, j = 1, k = 2, levelOffsets = info$levelOffsets)
+#' children_indices(d = 0, j = 1, k = 2, level_offsets = info$level_offsets)
 #'
 #' @export
-children_indices <- function(d, j, k, levelOffsets) {
-  l <- length(levelOffsets) - 1
+children_indices <- function(d, j, k, level_offsets) {
+  l <- length(level_offsets) - 1
   if (d == l) {
     return(integer(0))
   } # no children at the leaf level
@@ -74,7 +74,7 @@ children_indices <- function(d, j, k, levelOffsets) {
   endChild <- k * (j - 1) + k
   childLocals <- seq.int(startChild, endChild)
 
-  idx_global <- function(dd, localJ) levelOffsets[dd + 1] + localJ
+  idx_global <- function(dd, localJ) level_offsets[dd + 1] + localJ
 
   childGlobals <- idx_global(d + 1, childLocals)
   childGlobals
@@ -89,28 +89,28 @@ children_indices <- function(d, j, k, levelOffsets) {
 #' @param k Integer; the branching factor.
 #' @param l Integer; the depth of the tree (0-based).
 #' @param t Numeric in \eqn{[0, 1]}; the probability that a leaf is non-null.
-#' @param levelOffsets Integer vector, part of the output from \code{\link{get_level_info}}.
-#' @param levelSizes Integer vector, part of the output from \code{\link{get_level_info}}.
+#' @param level_offsets Integer vector, part of the output from \code{\link{get_level_info}}.
+#' @param level_sizes Integer vector, part of the output from \code{\link{get_level_info}}.
 #'
-#' @return A logical vector of length \code{sum(levelSizes)}, indicating for each node
+#' @return A logical vector of length \code{sum(level_sizes)}, indicating for each node
 #'   whether it is alternative (\code{TRUE}) or null (\code{FALSE}).
 #'
 #' @examples
 #' info <- get_level_info(k = 2, l = 2)
-#' altVec <- assign_alt(
+#' alt_vec <- assign_alt(
 #'   k = 2, l = 2, t = 0.5,
-#'   levelOffsets = info$levelOffsets, levelSizes = info$levelSizes
+#'   level_offsets = info$level_offsets, level_sizes = info$level_sizes
 #' )
-#' altVec
+#' alt_vec
 #'
 #' @export
-assign_alt <- function(k, l, t, levelOffsets, levelSizes) {
-  nTot <- sum(levelSizes)
+assign_alt <- function(k, l, t, level_offsets, level_sizes) {
+  nTot <- sum(level_sizes)
   alt <- rep(FALSE, nTot)
 
   # Identify leaves
-  leafStart <- levelOffsets[l + 1] + 1
-  leafEnd <- levelOffsets[l + 1] + levelSizes[l + 1]
+  leafStart <- level_offsets[l + 1] + 1
+  leafEnd <- level_offsets[l + 1] + level_sizes[l + 1]
   leafInds <- seq(leafStart, leafEnd)
 
   # Random assignment at leaves
@@ -118,14 +118,14 @@ assign_alt <- function(k, l, t, levelOffsets, levelSizes) {
 
   # Propagate alt up
   for (dd in seq(l, 1, by = -1)) {
-    offset_d <- levelOffsets[dd + 1]
-    nNodes_d <- levelSizes[dd + 1]
+    offset_d <- level_offsets[dd + 1]
+    nNodes_d <- level_sizes[dd + 1]
     for (j in seq_len(nNodes_d)) {
       childGlobal <- offset_d + j
       if (alt[childGlobal]) {
         # Mark parent alt
         parentLocal <- ceiling(j / k)
-        parentGlobal <- levelOffsets[dd] + parentLocal
+        parentGlobal <- level_offsets[dd] + parentLocal
         alt[parentGlobal] <- TRUE
       }
     }
@@ -141,7 +141,7 @@ assign_alt <- function(k, l, t, levelOffsets, levelSizes) {
 #'
 #' @param isAlt Logical; \code{TRUE} if the node is non-null, \code{FALSE} if null.
 #' @param parent_p Numeric in \eqn{[0,1]}; the parent's final p-value.
-#' @param betaParams Numeric vector of length 2, e.g. \code{c(a, b)}, specifying
+#' @param beta_params Numeric vector of length 2, e.g. \code{c(a, b)}, specifying
 #'   the Beta(\code{a},\code{b}) distribution for alternative nodes. The actual
 #'   p-value is then scaled to \eqn{[parent\_p, 1]}.
 #'
@@ -154,15 +154,15 @@ assign_alt <- function(k, l, t, levelOffsets, levelSizes) {
 #'
 #' @examples
 #' # Null node p-value if parent_p=0.3
-#' draw_node_p_value(FALSE, parent_p = 0.3, betaParams = c(0.1, 1))
+#' draw_node_p_value(FALSE, parent_p = 0.3, beta_params = c(0.1, 1))
 #'
 #' # Alt node p-value if parent_p=0.3
-#' draw_node_p_value(TRUE, parent_p = 0.3, betaParams = c(0.1, 1))
+#' draw_node_p_value(TRUE, parent_p = 0.3, beta_params = c(0.1, 1))
 #'
 #' @export
-draw_node_p_value <- function(isAlt, parent_p, betaParams) {
+draw_node_p_value <- function(isAlt, parent_p, beta_params) {
   if (isAlt) {
-    rawBeta <- rbeta(1, betaParams[1], betaParams[2])
+    rawBeta <- rbeta(1, beta_params[1], beta_params[2])
     parent_p + (1 - parent_p) * rawBeta
   } else {
     runif(1, min = parent_p, max = 1)
@@ -174,7 +174,7 @@ draw_node_p_value <- function(isAlt, parent_p, betaParams) {
 #' @description Given \eqn{k} child p-values, computes the Simes p-value
 #'   \eqn{\min_{i=1\ldots k} \{ (k/i) * p_{(i)} \}}, where \eqn{p_{(1)} \le \ldots \le p_{(k)}}.
 #'
-#' @param pvalsChildren Numeric vector of child p-values.
+#' @param pvals_children Numeric vector of child p-values.
 #'
 #' @details The Simes p-value is a valid test for the intersection hypothesis
 #'   \eqn{H_{\cap} : \text{all child hypotheses are null}}, under certain independence
@@ -186,13 +186,14 @@ draw_node_p_value <- function(isAlt, parent_p, betaParams) {
 #' local_simes(c(0.01, 0.04, 0.10, 0.20))
 #'
 #' @export
-local_simes <- function(pvalsChildren) {
-  k <- length(pvalsChildren)
-  sortP <- sort(pvalsChildren)
-  iSeq <- seq_len(k)
-  simesVals <- (k / iSeq) * sortP
-  min(simesVals)
+local_simes <- function(pvals_children) {
+  k <- length(pvals_children)
+  sort_p <- sort(pvals_children)
+  i_seq <- seq_len(k)
+  simes_vals <- (k / i_seq) * sort_p
+  min(simes_vals)
 }
+## NOTE maybe TODO: we could use hommel(pvals_children,simes=TRUE) from the hommel package here too.
 
 #' @title Simulate a Single Top-Down Run of the Hierarchical Simes Procedure
 #'
@@ -204,16 +205,16 @@ local_simes <- function(pvalsChildren) {
 #' @param alpha Numeric in \eqn{(0,1)}; the significance level threshold.
 #' @param alt Logical vector of length \eqn{\sum_{d=0}^{l} k^d}, indicating which nodes
 #'   are non-null (\code{TRUE}) vs. null (\code{FALSE}).
-#' @param levelOffsets Integer vector, part of \code{\link{get_level_info}} output.
-#' @param levelSizes Integer vector, part of \code{\link{get_level_info}} output.
-#' @param betaParams Numeric vector of length 2 for the Beta distribution
+#' @param level_offsets Integer vector, part of \code{\link{get_level_info}} output.
+#' @param level_sizes Integer vector, part of \code{\link{get_level_info}} output.
+#' @param beta_params Numeric vector of length 2 for the Beta distribution
 #'   parameters of alternative nodes (see \code{\link{draw_node_p_value}}).
-#'
+#' @param local_adj_fn A function that takes the child p-values of a node and returns a single value (like the min or max p-value) that can be used to decide on a local gating procedure. For now the default is the \code{local_simes} function.
 #' @details
 #' \enumerate{
 #'   \item The root node (level 0) is tested unconditionally:
 #'         if \code{alt[1] = FALSE}, its p-value is \eqn{\mathrm{Unif}(0,1)};
-#'         if \code{alt[1] = TRUE}, it is a scaled Beta(\code{betaParams}).
+#'         if \code{alt[1] = TRUE}, it is a scaled Beta(\code{beta_params}).
 #'   \item If a node's final p-value \eqn{> \alpha}, we do not generate child p-values
 #'         (gating).
 #'   \item If \eqn{\le \alpha}, we generate the child's p-values.  Then we apply
@@ -231,35 +232,35 @@ local_simes <- function(pvalsChildren) {
 #'
 #' @examples
 #' info <- get_level_info(k = 2, l = 2)
-#' altVec <- assign_alt(
+#' alt_vec <- assign_alt(
 #'   k = 2, l = 2, t = 0.5,
-#'   levelOffsets = info$levelOffsets, levelSizes = info$levelSizes
+#'   level_offsets = info$level_offsets, level_sizes = info$level_sizes
 #' )
 #' simulate_single_run(
-#'   k = 2, l = 2, alpha = 0.05, altVec,
-#'   levelOffsets = info$levelOffsets, levelSizes = info$levelSizes, betaParams = c(0.1, 1)
+#'   k = 2, l = 2, alpha = 0.05, alt_vec,
+#'   level_offsets = info$level_offsets, level_sizes = info$level_sizes, beta_params = c(0.1, 1)
 #' )
 #'
 #' @export
-simulate_single_run <- function(k, l, alpha, alt, levelOffsets, levelSizes, betaParams) {
-  nTot <- sum(levelSizes)
+simulate_single_run <- function(k, l, alpha, alt, level_offsets, level_sizes, beta_params, local_adjust_fn = local_simes) {
+  nTot <- sum(level_sizes)
   pvals <- rep(NA_real_, nTot)
   tested <- rep(FALSE, nTot)
 
-  falseReject <- FALSE
+  false_reject <- FALSE
 
   # Root
   rootIdx <- 1
-  pvals[rootIdx] <- draw_node_p_value(alt[rootIdx], 0, betaParams)
+  pvals[rootIdx] <- draw_node_p_value(alt[rootIdx], 0, beta_params)
   tested[rootIdx] <- TRUE
   if (!alt[rootIdx] && pvals[rootIdx] <= alpha) {
-    falseReject <- TRUE
+    false_reject <- TRUE
   }
 
   # Traverse level by level
   for (d in seq_len(l)) {
-    start_d <- levelOffsets[d + 1] + 1
-    end_d <- levelOffsets[d + 1] + levelSizes[d + 1]
+    start_d <- level_offsets[d + 1] + 1
+    end_d <- level_offsets[d + 1] + level_sizes[d + 1]
     nodeRange <- seq(start_d, end_d)
 
     # Parents that are tested and p <= alpha
@@ -268,43 +269,44 @@ simulate_single_run <- function(k, l, alpha, alt, levelOffsets, levelSizes, beta
 
     for (parentIdx in testedParents) {
       # local index j for the parent at level d
-      j <- parentIdx - levelOffsets[d + 1]
+      j <- parentIdx - level_offsets[d + 1]
 
       # identify children
-      childInds <- children_indices(d, j, k, levelOffsets)
+      childInds <- children_indices(d, j, k, level_offsets)
       if (!length(childInds)) next
 
       # draw child p-values
       parent_p <- pvals[parentIdx]
-      childPvals <- numeric(k)
+      child_pvals <- numeric(k)
       for (iC in seq_len(k)) {
         cIdx <- childInds[iC]
-        childPvals[iC] <- draw_node_p_value(alt[cIdx], parent_p, betaParams)
+        child_pvals[iC] <- draw_node_p_value(alt[cIdx], parent_p, beta_params)
       }
-      pvals[childInds] <- childPvals
+      pvals[childInds] <- child_pvals
       tested[childInds] <- TRUE
 
       # check false rejections among children
       nullChildren <- (!alt[childInds])
-      if (any(nullChildren & (childPvals <= alpha))) {
-        falseReject <- TRUE
+      if (any(nullChildren & (child_pvals <= alpha))) {
+        false_reject <- TRUE
       }
 
       # local Simes test
-      simesP <- local_simes(childPvals)
-      if (simesP > alpha) {
+      # simes_p <- local_simes(child_pvals)
+      local_p <- local_adjust_fn(child_pvals)
+      if (local_p > alpha) {
         # block deeper testing from these children
         pvals[childInds] <- alpha + 1e-8
       }
     }
   }
 
-  falseReject
+  false_reject
 }
 
 #' @title Monte Carlo Simulation of a Hierarchical Simes-Gated Testing Procedure
 #'
-#' @description Repeats \code{nSim} independent realizations of the following steps:
+#' @description Repeats \code{n_sim} independent realizations of the following steps:
 #'   \enumerate{
 #'     \item Randomly assign half the leaves as alt with probability \code{t},
 #'           and propagate alt status upward.
@@ -321,12 +323,12 @@ simulate_single_run <- function(k, l, alpha, alt, levelOffsets, levelSizes, beta
 #'           the fraction of runs in which at least one null node was \eqn{\le \alpha}.
 #'   }
 #'
-#' @param nSim Number of simulation replicates.
+#' @param n_sim Number of simulation replicates.
 #' @param k Integer; branching factor.
 #' @param l Integer; depth of the tree.
 #' @param t Numeric in \eqn{[0,1]}; probability that a leaf is non-null.
 #' @param alpha Numeric in \eqn{(0,1)}; significance level threshold.
-#' @param betaParams Numeric vector of length 2, \code{c(a,b)}, specifying Beta(a,b)
+#' @param beta_params Numeric vector of length 2, \code{c(a,b)}, specifying Beta(a,b)
 #'   for alt nodes. The final alt p-value is scaled to be in \eqn{[\text{parent\_p},1]}.
 #'
 #' @return A numeric estimate of the familywise error rate:
@@ -338,42 +340,43 @@ simulate_single_run <- function(k, l, alpha, alt, levelOffsets, levelSizes, beta
 #' \dontrun{
 #' set.seed(123)
 #' fwer_est <- simulate_hier_simes_local_modular(
-#'   nSim = 2000,
+#'   n_sim = 2000,
 #'   k = 2,
 #'   l = 3,
 #'   t = 0.5,
 #'   alpha = 0.05,
-#'   betaParams = c(0.1, 1)
+#'   beta_params = c(0.1, 1)
 #' )
 #' fwer_est
 #' }
 #'
 #' @export
-simulate_hier_simes_local_modular <- function(nSim = 10000,
+simulate_hier_simes_local_modular <- function(n_sim = 10000,
                                               k = 2,
                                               l = 3,
                                               t = 0.5,
                                               alpha = 0.05,
-                                              betaParams = c(0.1, 1)) {
+                                              beta_params = c(0.1, 1),
+                                              adjfn = local_simes) {
   info <- get_level_info(k, l)
-  off <- info$levelOffsets
-  sizes <- info$levelSizes
+  off <- info$level_offsets
+  sizes <- info$level_sizes
 
-  falseCount <- 0
+  false_count <- 0
 
-  for (rep in seq_len(nSim)) {
+  for (rep in seq_len(n_sim)) {
     # 1) alt assignment
-    altVec <- assign_alt(k, l, t, off, sizes)
+    alt_vec <- assign_alt(k, l, t, off, sizes)
 
     # 2) single run
-    hadFalseRej <- simulate_single_run(k, l, alpha, altVec, off, sizes, betaParams)
+    had_false_rej <- simulate_single_run(k, l, alpha, alt_vec, off, sizes, beta_params)
 
-    if (hadFalseRej) {
-      falseCount <- falseCount + 1
+    if (had_false_rej) {
+      false_count <- false_count + 1
     }
   }
 
   # fraction that had false rejection => FWER estimate
-  fwer <- falseCount / nSim
+  fwer <- false_count / n_sim
   fwer
 }

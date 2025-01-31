@@ -1,4 +1,3 @@
-# hier_simes_modular.R
 
 #' @title Compute Level and Offset Information for a k-ary Tree
 #'
@@ -14,7 +13,7 @@
 #'   \item{\code{level_sizes}}{An integer vector of length \code{l+1}, where \code{level_sizes[d+1] = k^d}.}
 #'   \item{\code{level_offsets}}{An integer vector of length \code{l+1}, where
 #'       \code{level_offsets[d+1]} is the total number of nodes up to (but not including) level \code{d}.}
-#'   \item{\code{nTot}}{The total number of nodes in the tree, \eqn{\sum_{d=0}^{l} k^d}.}
+#'   \item{\code{n_tot}}{The total number of nodes in the tree, \eqn{\sum_{d=0}^{l} k^d}.}
 #' }
 #'
 #' @examples
@@ -22,17 +21,17 @@
 #' info <- get_level_info(k = 2, l = 3)
 #' info$level_sizes # c(1, 2, 4, 8)
 #' info$level_offsets # c(0, 1, 3, 7)
-#' info$nTot # 15 total nodes
-#'
+#' info$n_tot # 15 total nodes
+#' 
 #' @export
 get_level_info <- function(k, l) {
   level_sizes <- k^(0:l)
   level_offsets <- cumsum(c(0, level_sizes[1:l]))
-  nTot <- sum(level_sizes)
+  n_tot <- sum(level_sizes)
   list(
     level_sizes = level_sizes,
     level_offsets = level_offsets,
-    nTot = nTot
+    n_tot = n_tot
   )
 }
 
@@ -59,10 +58,15 @@ get_level_info <- function(k, l) {
 #' @seealso \code{\link{get_level_info}}
 #'
 #' @examples
-#' info <- get_level_info(k = 2, l = 2)
+#' info <- get_level_info(k = 2, l = 3)
 #' # Root is at level d=0, j=1 => children are global indices 2 and 3
 #' children_indices(d = 0, j = 1, k = 2, level_offsets = info$level_offsets)
-#'
+#' # Next look at level 1 where we have 2 nodes
+#' # d=1, j=1 => global index node 2 => children are 4 and 5
+#' children_indices(d = 1, j = 1, k = 2, level_offsets = info$level_offsets)
+#' # d=1, j=2 ==> the global indx node 3 => children are nodes 6 and 7
+#' children_indices(d = 1, j = 2, k = 2, level_offsets = info$level_offsets)
+
 #' @export
 children_indices <- function(d, j, k, level_offsets) {
   l <- length(level_offsets) - 1
@@ -70,14 +74,14 @@ children_indices <- function(d, j, k, level_offsets) {
     return(integer(0))
   } # no children at the leaf level
 
-  startChild <- k * (j - 1) + 1
-  endChild <- k * (j - 1) + k
-  childLocals <- seq.int(startChild, endChild)
+  start_child <- k * (j - 1) + 1
+  end_child <- k * (j - 1) + k
+  child_locals <- seq.int(start_child, end_child)
 
   idx_global <- function(dd, localJ) level_offsets[dd + 1] + localJ
 
-  childGlobals <- idx_global(d + 1, childLocals)
-  childGlobals
+  child_globals <- idx_global(d + 1, child_locals)
+  child_globals
 }
 
 #' @title Assign Null/Alternative Status in a k-ary Tree
@@ -105,28 +109,28 @@ children_indices <- function(d, j, k, level_offsets) {
 #'
 #' @export
 assign_alt <- function(k, l, t, level_offsets, level_sizes) {
-  nTot <- sum(level_sizes)
-  alt <- rep(FALSE, nTot)
+  n_tot <- sum(level_sizes)
+  alt <- rep(FALSE, n_tot)
 
   # Identify leaves
-  leafStart <- level_offsets[l + 1] + 1
-  leafEnd <- level_offsets[l + 1] + level_sizes[l + 1]
-  leafInds <- seq(leafStart, leafEnd)
+  leaf_start <- level_offsets[l + 1] + 1
+  leaf_end <- level_offsets[l + 1] + level_sizes[l + 1]
+  leaf_inds <- seq(leaf_start, leaf_end)
 
   # Random assignment at leaves
-  alt[leafInds] <- (runif(length(leafInds)) < t)
+  alt[leaf_inds] <- (runif(length(leaf_inds)) < t)
 
   # Propagate alt up
   for (dd in seq(l, 1, by = -1)) {
     offset_d <- level_offsets[dd + 1]
-    nNodes_d <- level_sizes[dd + 1]
-    for (j in seq_len(nNodes_d)) {
-      childGlobal <- offset_d + j
-      if (alt[childGlobal]) {
+    n_nodes_d <- level_sizes[dd + 1]
+    for (j in seq_len(n_nodes_d)) {
+      child_global <- offset_d + j
+      if (alt[child_global]) {
         # Mark parent alt
-        parentLocal <- ceiling(j / k)
-        parentGlobal <- level_offsets[dd] + parentLocal
-        alt[parentGlobal] <- TRUE
+        parent_local <- ceiling(j / k)
+        parent_global <- level_offsets[dd] + parent_local
+        alt[parent_global] <- TRUE
       }
     }
   }
@@ -169,7 +173,7 @@ draw_node_p_value <- function(isAlt, parent_p, beta_params) {
   }
 }
 
-#' @title Compute Local Simes p-value for a Vector of Child p-values
+#' @title Compute local Simes p-value for a Vector of Child p-values
 #'
 #' @description Given \eqn{k} child p-values, computes the Simes p-value
 #'   \eqn{\min_{i=1\ldots k} \{ (k/i) * p_{(i)} \}}, where \eqn{p_{(1)} \le \ldots \le p_{(k)}}.
@@ -243,17 +247,17 @@ local_simes <- function(pvals_children) {
 #'
 #' @export
 simulate_single_run <- function(k, l, alpha, alt, level_offsets, level_sizes, beta_params, local_adjust_fn = local_simes) {
-  nTot <- sum(level_sizes)
-  pvals <- rep(NA_real_, nTot)
-  tested <- rep(FALSE, nTot)
+  n_tot <- sum(level_sizes)
+  pvals <- rep(NA_real_, n_tot)
+  tested <- rep(FALSE, n_tot)
 
   false_reject <- FALSE
 
   # Root
-  rootIdx <- 1
-  pvals[rootIdx] <- draw_node_p_value(alt[rootIdx], 0, beta_params)
-  tested[rootIdx] <- TRUE
-  if (!alt[rootIdx] && pvals[rootIdx] <= alpha) {
+  root_idx <- 1
+  pvals[root_idx] <- draw_node_p_value(alt[root_idx], 0, beta_params)
+  tested[root_idx] <- TRUE
+  if (!alt[root_idx] && pvals[root_idx] <= alpha) {
     false_reject <- TRUE
   }
 
@@ -264,30 +268,30 @@ simulate_single_run <- function(k, l, alpha, alt, level_offsets, level_sizes, be
     nodeRange <- seq(start_d, end_d)
 
     # Parents that are tested and p <= alpha
-    testedParents <- nodeRange[tested[nodeRange] & (pvals[nodeRange] <= alpha)]
-    if (!length(testedParents)) next
+    tested_parents <- nodeRange[tested[nodeRange] & (pvals[nodeRange] <= alpha)]
+    if (!length(tested_parents)) next
 
-    for (parentIdx in testedParents) {
+    for (parent_idx in tested_parents) {
       # local index j for the parent at level d
-      j <- parentIdx - level_offsets[d + 1]
+      j <- parent_idx - level_offsets[d + 1]
 
       # identify children
-      childInds <- children_indices(d, j, k, level_offsets)
-      if (!length(childInds)) next
+      child_inds <- children_indices(d, j, k, level_offsets)
+      if (!length(child_inds)) next
 
       # draw child p-values
-      parent_p <- pvals[parentIdx]
+      parent_p <- pvals[parent_idx]
       child_pvals <- numeric(k)
       for (iC in seq_len(k)) {
-        cIdx <- childInds[iC]
-        child_pvals[iC] <- draw_node_p_value(alt[cIdx], parent_p, beta_params)
+        c_idx <- child_inds[iC]
+        child_pvals[iC] <- draw_node_p_value(alt[c_idx], parent_p, beta_params)
       }
-      pvals[childInds] <- child_pvals
-      tested[childInds] <- TRUE
+      pvals[child_inds] <- child_pvals
+      tested[child_inds] <- TRUE
 
       # check false rejections among children
-      nullChildren <- (!alt[childInds])
-      if (any(nullChildren & (child_pvals <= alpha))) {
+      null_children <- (!alt[child_inds])
+      if (any(null_children & (child_pvals <= alpha))) {
         false_reject <- TRUE
       }
 
@@ -296,7 +300,7 @@ simulate_single_run <- function(k, l, alpha, alt, level_offsets, level_sizes, be
       local_p <- local_adjust_fn(child_pvals)
       if (local_p > alpha) {
         # block deeper testing from these children
-        pvals[childInds] <- alpha + 1e-8
+        pvals[child_inds] <- alpha + 1e-8
       }
     }
   }

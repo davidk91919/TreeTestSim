@@ -1,18 +1,19 @@
-
 #' @title Compute Level and Offset Information for a k-ary Tree
 #'
 #' @description Given a branching factor \code{k} and a depth \code{l}, this function
 #'   computes the number of nodes at each level and the starting offsets for a
 #'   level-by-level indexing scheme in a single vector.
 #'
-#' @param k Integer; the branching factor (i.e., each internal node has \code{k} children).
-#' @param l Integer; the depth of the tree (0-based). If \code{l=0}, there is only a root.
+#' @param k Integer; the branching factor (i.e., each internal node has \code{k} children). Must be greater than 0.
+#' @param l Integer; the depth of the tree (0-based). If \code{l=0}, there is only a root. If l=1, this means a root and one level below the root.
 #'
 #' @return A list with the elements:
 #' \describe{
+#'   \item{\code{k}{k}}
+#'   \item{\code{l}{l}}
 #'   \item{\code{level_sizes}}{An integer vector of length \code{l+1}, where \code{level_sizes[d+1] = k^d}.}
 #'   \item{\code{level_offsets}}{An integer vector of length \code{l+1}, where
-#'       \code{level_offsets[d+1]} is the total number of nodes up to (but not including) level \code{d}.}
+#'       \code{level_offsets[d+1]} is the total number of nodes up to (but not including) level \code{d}. Used for creating indices.}
 #'   \item{\code{n_tot}}{The total number of nodes in the tree, \eqn{\sum_{d=0}^{l} k^d}.}
 #' }
 #'
@@ -21,14 +22,30 @@
 #' info <- get_level_info(k = 2, l = 3)
 #' info$level_sizes # c(1, 2, 4, 8)
 #' info$level_offsets # c(0, 1, 3, 7)
+#' # Index of root is 0 in a 0-based system (we go between 0-based for mathematical clarity and 1-based for R
+#' # Here we show both:
+#' # for 1-based indexing the next level l=1 is level_offsets[2]+c(1,2)=c(2,3)
+#' # for 0-based indexing the next level l=1 is level_offsets[2]+c(0,1)=c(1,2)
+#' # For the next level, l=2 (or the third level in the tree if you are counting the root as a level)
+#' # for the first node in level 1 the children in level 2 using: 1-based indexing level_offsets[3] + c(1,2)=c(4,5)
+#' # for the second node in level 1 the children in level 2  1-based indexing level_offsets[3] + c(k*(2-1)+1,k*(2-1)+2) = 3+c(3,4)=c(6,7)
+#' # for the first node in level 1 the children in level 2 0-based indexing level_offsets[3] + seq(k*j,k*j+(k-1))=3+c(0,1)=c(3,4)
+#' # for the second node in level 1 the children in level 2 0-based indexing level_offsets[3] + seq(k*j,k*j + (k-1))=3+c(2,3)=c(5,6)
 #' info$n_tot # 15 total nodes
-#' 
+#'
 #' @export
 get_level_info <- function(k, l) {
+  stopifnot(k > 0)
   level_sizes <- k^(0:l)
-  level_offsets <- cumsum(c(0, level_sizes[1:l]))
+  if (l == 0) {
+    level_offsets <- 0
+  } else {
+    level_offsets <- cumsum(c(0, level_sizes[1:l]))
+  }
   n_tot <- sum(level_sizes)
   list(
+    k = k,
+    l = l,
     level_sizes = level_sizes,
     level_offsets = level_offsets,
     n_tot = n_tot
@@ -37,48 +54,55 @@ get_level_info <- function(k, l) {
 
 #' @title Get Children of a Node in a k-ary Tree
 #'
-#' @description Given a node's level \code{d} and local index \code{j} in a k-ary tree,
-#'   return the global indices of its \code{k} children (if \code{d < l}).
+#' @description Given a node's level \code{d} and local index \code{j} in a
+#' k-ary tree, return the global indices of its \code{k} children (if \code{d <
+#' l}) using a 1-based indexing system given the way R indexes. When d=0, j must be 1 since we only have one root node.
 #'
-#' @param d Integer; the current level of the node (0-based).
-#' @param j Integer; the node's local index within level \code{d} (1-based).
-#' @param k Integer; the branching factor of the tree.
-#' @param level_offsets Integer vector of length \code{l+1}, as returned by \code{\link{get_level_info}}.
+#' @param d Integer; the current level or depth of the node (0-based).
+#' @param j Integer; the node's local index within level \code{d} (1-based) -- a function of k (number of nodes per level)
+#' @param tree_info A list such as the one returned by \code{\link{get_level_info}}
 #'
 #' @details We assume a level-by-level storage scheme:
-#'   \itemize{
-#'     \item Level \eqn{d} has \eqn{k^d} nodes.
-#'     \item The children of node \eqn{(d, j)} are those with local indices
-#'           \eqn{k(j-1)+1, \ldots, k(j-1)+k} in level \eqn{d+1}.
-#'     \item The function returns an empty integer vector if \eqn{d=l} (a leaf).
-#'   }
+#' \itemize{
+#' \item Level \eqn{d} has \eqn{k^d} nodes.
+#' \item The children of local node j in level d, \eqn{(d, j)}, are those with local indices \eqn{k(j-1)+1, \ldots, k(j-1)+k} in level
+#' \eqn{d+1}.
+#' \item The function returns an empty integer vector if \eqn{d=l} (a leaf). }
 #'
 #' @return An integer vector of global indices of the children.
 #'
 #' @seealso \code{\link{get_level_info}}
 #'
 #' @examples
-#' info <- get_level_info(k = 2, l = 3)
+#' info <- get_level_info(k = 2, l = 2)
 #' # Root is at level d=0, j=1 => children are global indices 2 and 3
-#' children_indices(d = 0, j = 1, k = 2, level_offsets = info$level_offsets)
-#' # Next look at level 1 where we have 2 nodes
-#' # d=1, j=1 => global index node 2 => children are 4 and 5
-#' children_indices(d = 1, j = 1, k = 2, level_offsets = info$level_offsets)
+#' children_indices(d = 0, j = 1, tree_info = info)
+#' # Next look at level 1 where we have 2 nodes # d=1, j=1 => global index node 2 => children are 4 and 5
+#' children_indices(d = 1, j = 1, tree_info = info)
 #' # d=1, j=2 ==> the global indx node 3 => children are nodes 6 and 7
-#' children_indices(d = 1, j = 2, k = 2, level_offsets = info$level_offsets)
+#' children_indices(d = 1, j = 2, tree_info = info)
 
 #' @export
-children_indices <- function(d, j, k, level_offsets) {
+children_indices <- function(d, j, tree_info) {
+  level_offsets <- tree_info$level_offsets
+  k <- tree_info$k
+
   l <- length(level_offsets) - 1
   if (d == l) {
     return(integer(0))
   } # no children at the leaf level
-
+  if (d == 0) {
+    stopifnot("There should only be one node at the root (d=0 requires j=1)" = j == 1)
+  }
+  stopifnot("There are no nodes labeled as zero" = j != 0)
+  # stopifnot("The local node number must be between 1 and k"=(j>0 & j<=k))
   start_child <- k * (j - 1) + 1
   end_child <- k * (j - 1) + k
   child_locals <- seq.int(start_child, end_child)
 
-  idx_global <- function(dd, localJ) level_offsets[dd + 1] + localJ
+  idx_global <- function(dd, localJ) {
+    level_offsets[dd + 1] + localJ
+  }
 
   child_globals <- idx_global(d + 1, child_locals)
   child_globals

@@ -163,7 +163,8 @@ test_that("local_simes() example check", {
 })
 
 test_that("simulate_single_run() runs without error, returns T/F", {
-  info <- get_level_info(k = 2, l = 3)
+  info <- get_level_info(k = 3, l = 3)
+  set.seed(12345)
   alt_vec <- assign_alt(t = 0.3, tree_info = info)
   out <- simulate_single_run(
     tree_info = info,
@@ -173,7 +174,38 @@ test_that("simulate_single_run() runs without error, returns T/F", {
   )
   expect_true(is.logical(out))
   expect_length(out, 1)
+  ## Try with t=0, and t=1
+  set.seed(12345)
+  alt_vec <- assign_alt(t = 0, tree_info = info)
+  out_reps <- replicate(
+    1000,
+    simulate_single_run(
+      tree_info = info,
+      alpha = 0.05,
+      alt = alt_vec,
+      beta_params = c(0.1, 1)
+    )
+  )
+  se_sims <- sqrt(.05 * (1 - .05) / 1000)
+  expect_lt(mean(out_reps), .05 + 2 * se_sims)
+
+  set.seed(12345)
+  alt_vec <- assign_alt(t = 1, tree_info = info)
+  out_reps <- replicate(
+    10000,
+    simulate_single_run(
+      tree_info = info,
+      alpha = 0.05,
+      alt = alt_vec,
+      beta_params = c(0.1, 1)
+    )
+  )
+  ## Should have no false positives if all rejections are correct
+  expect_equal(mean(out_reps), 0)
+  ## TODO: Try with local_adj just take the lowest p-value (i.e. no adjustment)
 })
+
+## TODO: Start here
 
 test_that("simulate_hier() returns plausible FWER", {
   skip_on_cran()

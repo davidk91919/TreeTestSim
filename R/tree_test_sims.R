@@ -328,7 +328,7 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
 
   ## If didn't reject the root but it was a non-null effect, this is a power
   ## problem but not a false rejection. Regardless, we cannot continue testing.
-  if (!alt[root_idx] && pvals[root_idx] > alpha) {
+  if (alt[root_idx] && pvals[root_idx] > alpha) {
     false_reject <- FALSE
     return(false_reject)
   }
@@ -339,8 +339,13 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
   for (i in idx_l1) {
     pvals[i] <- draw_node_p_value(is_alt = alt[i], parent_p = pvals[root_idx], beta_params = beta_params)
   }
+  tested[idx_l1] <- TRUE
   local_adj_l1 <- local_adjust_fn(pvals[idx_l1])
-  ## if local_adj_l1 <= alpha and at least one of the nodes is non-null go to next level otherwise return false_reject <- FALSE
+
+  ## If can't reject the local-global test then stop testing at this level /
+  ## parent node (there is only one parent node here) and this is not a false
+  ## rejection.
+
   if (local_adj_l1 > alpha) {
     false_reject <- FALSE
     return(false_reject)
@@ -348,36 +353,41 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
 
   ## If all of the nodes are FALSE (i.e. null) but we reject using the local
   ## adjustment, then this is a false rejection (at least one false rejection)
-  ## If we reject using the local adjustment and at least one of the nodes is
-  ## non-null, then this is not a false rejection --- if that node p <= alpha,
-  ## we will continue down the tree.
-
   if (local_adj_l1 <= alpha && all(!alt[idx_l1])) {
     false_reject <- TRUE
     return(false_reject)
   }
 
-  ## If we have a global reject across the three nodes and node level rejection
-  ## of a node that should not have been rejected -- alt=FALSE, then this is a
-  ## false rejection. No need to continue the simulation to look for others.
+  ## If we have a local-global reject across the three nodes and node level
+  ## rejection of a node that should not have been rejected -- alt=FALSE, then
+  ## this is a false rejection. No need to continue the simulation to look for
+  ## others since we are looking at FWER here.
 
   if (local_adj_l1 <= alpha & any(pvals[idx_l1] <= alpha & !alt[idx_l1])) {
     false_reject <- TRUE
     return(false_reject)
   }
 
+  ## Now for the next levels
   level_idxs <- c(0, rep(seq_len(l), k^seq_len(l)))
 
   ## Loop over the global indices of the nodes at level d>2
-  node_gate <- list()
   for (d in seq(2, l)) {
     parent_level <- d - 1
     parent_idxs_raw <- node_idx[level_idxs == parent_level]
-    ## You can only go on with testing if the node p <= alpha
+
+    ## You can only go on with testing if the node p <= alpha given that we
+    ## have passed the local adjustment gate above.
+
     parent_idxs_non_gated <- parent_idxs_raw[pvals[parent_idxs_raw] <= alpha]
-    ## This next is mostly because I'm avoiding names for memory reasons
-    ## Not elegant to replace values like this
-    node_gate[[d - 1]] <- parent_idxs_non_gated
+
+    ## If we have nothing to for any of the now-parent nodes in this level, then no false rejections and stop.
+    if (length(parent_idxs_non_gated) == 0 | all(is.na(parent_idxs_non_gated))) {
+      false_reject <- FALSE
+      return(false_reject)
+    }
+    parent_idxs_non_gated <- parent_idxs_non_gated[!is.na(parent_idxs_non_gated)]
+
     ## Loop over the nodes that have pvals <= alpha
     for (i in parent_idxs_non_gated) {
       local_idx <- i - tree_info$level_offsets[d]
@@ -385,18 +395,40 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
       for (j in child_idxs) {
         pvals[j] <- draw_node_p_value(is_alt = alt[j], parent_p = pvals[i], beta_params = beta_params)
       }
+
+      tested[child_idxs] <- TRUE
       local_adj <- local_adjust_fn(pvals[child_idxs])
 
       ## Assign **all** pvals for these children to be a bit higher than alpha
-      ## if we can't pass the local adjustment
+      ## if we can't pass the local adjustment we have no false rejection for that parent node
+      ## Don't stop  the algorithm yet because maybe the other nodes will need to be rejected
       if (local_adj > alpha) {
-        pvals[child_idxs] <- alpha + 1e-8
+        ## Not sure if this next is useful
+        pvals[child_idxs] <- pmax(alpha + 1e-8, pvals[child_idxs])
+        false_reject <- FALSE
+        next
+      }
+
+      ## If all of the nodes are FALSE (i.e. null) but we reject using the local
+      ## adjustment, then this is a false rejection (at least one false rejection)
+      if (local_adj <= alpha && all(!alt[child_idxs])) {
+        false_reject <- TRUE
+        return(false_reject)
+      }
+
+      ## If we have a local-global reject across the three nodes and node level
+      ## rejection of a node that should not have been rejected -- alt=FALSE, then
+      ## this is a false rejection. No need to continue the simulation to look for
+      ## others since we are looking at FWER here.
+
+      if (local_adj <= alpha & any(pvals[child_idxs] <= alpha & !alt[child_idxs])) {
+        false_reject <- TRUE
+        return(false_reject)
       }
     }
   }
-  ## Continue testing for nodes with node_gate==0
 
-  false_reject
+  return(false_reject)
 }
 
 #' @title Monte Carlo Simulation of a Hierarchical Simes-Gated Testing Procedure

@@ -82,91 +82,73 @@ test_that("children_indices() works", {
   expect_true(all(cidx_l3s))
 })
 
+test_that("The get_ancestors function works as it should", {
+  info <- get_level_info(k = 2, l = 3)
+  info_k3_l3 <- get_level_info(k = 3, l = 3)
+  ## 1-based
+  ##            1
+  ##            2                      3       4
+  ## 5         6             7     8 9 10     11 12 13
+  ## 14 15 16  17 18 19 ...
+  expect_equal(get_ancestors(node_id = 8, k = 3), c(3, 1))
+  expect_equal(get_ancestors(node_id = 17, k = 3), c(6, 2, 1))
+  expect_equal(get_ancestors(node_id = 14, k = 3), c(5, 2, 1))
+  expect_equal(get_ancestors(node_id = 8, k = 2), c(4, 2, 1))
+  expect_equal(get_ancestors(node_id = 15, k = 2), c(7, 4, 2, 1))
+})
+
 test_that("assign_alt() sets leaf alt with prob t and propagates up", {
   set.seed(123)
   info <- get_level_info(k = 2, l = 3)
-  alt_vec <- assign_alt(
-    k = 2, l = 3, t = 0.5,
-    level_offsets = info$level_offsets,
-    level_sizes = info$level_sizes
-  )
-
   #  1
   # 2 3
   #  4    5    6      7
   # 8 9 10 11 12 13 14 15
 
-  children_indices(d = 0, j = 1, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 1, j = 1, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 1, j = 2, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 2, j = 1, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 2, j = 2, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 2, j = 3, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 2, j = 4, k = 2, level_offsets = info$level_offsets)
-  ## The leaves
-  children_indices(d = 3, j = 1, k = 2, level_offsets = info$level_offsets)
-  children_indices(d = 3, j = info$level_sizes[4], k = 2, level_offsets = info$level_offsets)
+  ## In a 3 level tree with k=2, we know that we have k^3=2^3=8 leaves (level 3 are levels, k=2 we ave k^l nodes at each level)
+  ## And in our vector index format, the last 8 entries are the leavesa
+  ## The general formaul is level_offset[l+1]+1 ... level_offsets[l+1]+k^d, where d is the depth
+  global_leaf_indices <- seq.int(info$level_offsets[3 + 1] + 1, info$level_offsets[3 + 1] + 2^3)
+  expect_equal(global_leaf_indices, seq.int(8, 15))
 
+  # this is 4 out of 8
+  alt_vec <- assign_alt(t = 0.5, tree_info = info)
+  ## make sure that the correct number is assigned
+  expect_number_assigned <- floor(.5 * length(global_leaf_indices))
+  expect_equal(sum(alt_vec[global_leaf_indices]), expect_number_assigned)
+
+  ## This rounds down (this is fine. We want to round down for the purposes of the simulation)
+  alt_vec <- assign_alt(t = 0.3, tree_info = info)
+  ## make sure that the correct number is assigned
+  expect_number_assigned <- floor(.3 * length(global_leaf_indices))
+  expect_equal(sum(alt_vec[global_leaf_indices]), expect_number_assigned)
+
+  # Make sure that the vectors are the same length
   expect_equal(length(alt_vec), info$n_tot)
-
-  leaf_idxs <- unlist(lapply(seq(1, info$level_sizes[3]), function(local_idx) {
-    children_indices(d = 2, j = local_idx, k = 2, level_offsets = info$level_offsets)
-  }))
-  expect_equal(leaf_idxs, seq(8, 15))
-
-  parent_idx_fn <- function(idx, k) {
-    # floor((idx - 2) / k) ## for 0-base
-    # floor((idx - 2) / k) + 1 ## for 1-base
-    idx %/% k ## for 1-base
-  }
-
-  expect_equal(parent_idx_fn(8L, k = 2), 4)
-  expect_equal(parent_idx_fn(c(2, 3), k = 2), c(1, 1))
-
-  expect_equal(
-    parent_idx_fn(c(5, 6, 7, 8, 9, 10, 11, 12, 13), k = 3),
-    c(2, 2, 2, 3, 3, 3, 4, 4, 4)
-  )
-
-  get_ancestors <- function(i, k) {
-    ancestors <- integer(0)
-    while (i >= 1) {
-      ancestors <- c(ancestors, i)
-      if (i == 1) break # The root has no parent
-      i <- floor((i - 2) / k) + 1
-    }
-    # `ancestors` is from leaf up to root; reverse if you want root->leaf
-    return(rev(ancestors))
-  }
-
-  expect_equal(get_ancestors(8, k = 2), c(1, 2, 4, 8))
 
   # this is random, but we can check that if a leaf is alt => its ancestors are alt
   # we'll do multiple replicates in a loop to ensure no errors
   for (i in 1:10) {
-    alt_vec <- assign_alt(
-      k = 2, l = 3, t = 0.5,
-      level_offsets = info$level_offsets,
-      level_sizes = info$level_sizes
-    )
+    alt_vec <- assign_alt(t = 0.5, tree_info = info)
     # _check that each leaf's alt => parent's alt => root alt
-    for (leaf_idx in 4:7) {
-      if (alt_vec[leaf_idx]) {
-        # parent of leaf_idx is either 2 or 3
-        parent_idx <- if (leaf_idx %in% c(4, 5)) 2 else 3
-        expect_true(alt_vec[parent_idx])
+    for (leaf_idx in global_leaf_indices) {
+      if (alt_vec[leaf_idx]) { ## if a leaf is TRUE
+        leaf_ancestors_idxs <- get_ancestors(node_id = leaf_idx, k = info$k)
+        expect_true(all(alt_vec[leaf_ancestors_idxs]))
         # root is 1
         expect_true(alt_vec[1])
       }
     }
   }
+  ##
 })
 
 test_that("draw_node_p_value() yields monotonic p-values in [parent_p,1]", {
-  parent_p <- 0.3
+  ## recall that when is_alt=TRUE we use the beta distribution but when is_alt=FALSE we use the uniform distribution
+  parent_p <- 0.01
   for (i in 1:100) {
-    p_null <- draw_node_p_value(FALSE, parent_p, c(0.1, 1))
-    p_alt <- draw_node_p_value(TRUE, parent_p, c(0.1, 1))
+    p_null <- draw_node_p_value(is_alt = FALSE, parent_p, beta_params = c(0.1, 1))
+    p_alt <- draw_node_p_value(is_alt = TRUE, parent_p, beta_params = c(0.1, 1))
     expect_true(p_null >= parent_p && p_null <= 1)
     expect_true(p_alt >= parent_p && p_alt <= 1)
   }
@@ -181,20 +163,19 @@ test_that("local_simes() example check", {
 })
 
 test_that("simulate_single_run() runs without error, returns T/F", {
-  info <- get_level_info(k = 2, l = 2)
-  alt_vec <- assign_alt(k = 2, l = 2, t = 0.5, info$level_offsets, info$level_sizes)
+  info <- get_level_info(k = 2, l = 3)
+  alt_vec <- assign_alt(t = 0.3, tree_info = info)
   out <- simulate_single_run(
-    k = 2, l = 2, alpha = 0.05,
+    tree_info = info,
+    alpha = 0.05,
     alt = alt_vec,
-    level_offsets = info$level_offsets,
-    level_sizes = info$level_sizes,
     beta_params = c(0.1, 1)
   )
   expect_true(is.logical(out))
   expect_length(out, 1)
 })
 
-test_that("simulate_hier_simes_local_modular() returns plausible FWER", {
+test_that("simulate_hier() returns plausible FWER", {
   skip_on_cran()
   set.seed(999)
   est <- simulate_hier_simes_local_modular(n_sim = 1000, k = 2, l = 2, t = 0.5, alpha = 0.05)

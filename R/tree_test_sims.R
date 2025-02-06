@@ -108,6 +108,39 @@ children_indices <- function(d, j, tree_info) {
   child_globals
 }
 
+
+#' @title Return a vector of all ancestors of a node
+#'
+#' @description Given a 1-based global node id and information about the number of nodes at a level, return the global indices of all ancestors of that node.
+#'
+#' @param node_id Integer; The global node id
+#' @param k Integer; The number of nodes at each level of the k-ary tree
+#'
+#' @return a vector with the global ids of the ancestors of the node (always includes node 1 or the root node)
+#'
+#' @examples
+#' ## This next returns c(3,1)
+#' get_ancestors(node_id = 8, k = 3)
+#' ## This next returns c(4,2,1)
+#' get_ancestors(node_id = 8, k = 2)
+#'
+#' @export
+get_ancestors <- function(node_id, k) {
+  if (node_id < 2) {
+    return(integer(0))
+  } # the root has no ancestors
+  # Set an upper bound on the number of steps needed.
+  max_exp <- ceiling(log(node_id - 1, base = k)) + 1
+  # Compute ancestors using vectorized arithmetic:
+  # For exponent i, the ancestor is floor((node_id - 2)/k^i) + 1.
+  anc <- floor((node_id - 2) / k^(1:max_exp)) + 1
+  # The sequence will eventually hit the root (1) and then remain 1.
+  # We take ancestors up to the first occurrence of 1.
+  last <- which(anc == 1)[1]
+  return(anc[1:last])
+}
+
+
 #' @title Assign Null/Alternative Status in a k-ary Tree
 #'
 #' @description Randomly marks each leaf node as alternative (non-null) with probability
@@ -132,31 +165,38 @@ children_indices <- function(d, j, tree_info) {
 #' alt_vec
 #'
 #' @export
-assign_alt <- function(k, l, t, level_offsets, level_sizes) {
-  n_tot <- sum(level_sizes)
+assign_alt <- function(t, tree_info) {
+  k <- tree_info$k
+  l <- tree_info$l
+  level_offsets <- tree_info$level_offsets
+  level_sizes <- tree_info$level_sizes
+  n_tot <- tree_info$n_tot
+
+  ## Initialize the vector indicating whether a node has a non-null efffect as FALSE
   alt <- rep(FALSE, n_tot)
 
   # Identify leaves
+  ## This might be slightly slower than
+  ## seq.int(level_offsets[l+1],level_offsets[l+1]+k^l)
   leaf_start <- level_offsets[l + 1] + 1
   leaf_end <- level_offsets[l + 1] + level_sizes[l + 1]
-  leaf_inds <- seq(leaf_start, leaf_end)
+  leaf_inds <- seq.int(leaf_start, leaf_end)
+  ## Stop this test once we are satified
+  leaf_inds2 <- seq.int(level_offsets[l + 1] + 1, level_offsets[l + 1] + k^l)
+  stopifnot(all.equal(leaf_inds, leaf_inds2))
 
-  # Random assignment at leaves
-  alt[leaf_inds] <- (runif(length(leaf_inds)) < t)
+  # Complete Random assignment at leaves
+  ## alt[leaf_inds] <- (runif(length(leaf_inds)) < t)
+  n_leaves <- length(leaf_inds)
+  m_leaves <- floor(t * n_leaves)
+  alt[leaf_inds] <- sample(rep(c(FALSE, TRUE), c(n_leaves - m_leaves, m_leaves)))
 
-  # Propagate alt up
-  for (dd in seq(l, 1, by = -1)) {
-    offset_d <- level_offsets[dd + 1]
-    n_nodes_d <- level_sizes[dd + 1]
-    for (j in seq_len(n_nodes_d)) {
-      child_global <- offset_d + j
-      if (alt[child_global]) {
-        # Mark parent alt
-        parent_local <- ceiling(j / k)
-        parent_global <- level_offsets[dd] + parent_local
-        alt[parent_global] <- TRUE
-      }
-    }
+  ## Assign all ancestors of each TRUE leaf node to be TRUE
+  for (i in leaf_inds[alt[leaf_inds]]) {
+    # TODO: this could be made more efficient maybe since some leafs will share exactly the same ancestors
+    # but I'm not sure how much more overhead would go into checking equality of the vectors or the math of get_ancestors
+    leaf_ancestors <- get_ancestors(node_id = i, k = k)
+    alt[leaf_ancestors] <- TRUE
   }
 
   alt
@@ -167,31 +207,31 @@ assign_alt <- function(k, l, t, level_offsets, level_sizes) {
 #' @description Generates a final p-value for a node given its parent's final p-value,
 #'   respecting the monotonic rule \eqn{p_\text{child} \ge p_\text{parent}}.
 #'
-#' @param isAlt Logical; \code{TRUE} if the node is non-null, \code{FALSE} if null.
+#' @param is_alt Logical; \code{TRUE} if the node is non-null, \code{FALSE} if null.
 #' @param parent_p Numeric in \eqn{[0,1]}; the parent's final p-value.
 #' @param beta_params Numeric vector of length 2, e.g. \code{c(a, b)}, specifying
 #'   the Beta(\code{a},\code{b}) distribution for alternative nodes. The actual
 #'   p-value is then scaled to \eqn{[parent\_p, 1]}.
 #'
 #' @details
-#' If \code{isAlt=FALSE}, we draw \eqn{\mathrm{Uniform}(parent\_p, 1)}.
-#' If \code{isAlt=TRUE}, we draw \eqn{\mathrm{Beta}(a,b)} and linearly
+#' If \code{is_alt=FALSE}, we draw \eqn{\mathrm{Uniform}(parent\_p, 1)}.
+#' If \code{is_alt=TRUE}, we draw \eqn{\mathrm{Beta}(a,b)} and linearly
 #'   rescale the result into \eqn{[parent\_p, 1]}.
 #'
 #' @return A numeric p-value in \eqn{[parent\_p, 1]}.
 #'
 #' @examples
-#' # Null node p-value if parent_p=0.3
-#' draw_node_p_value(FALSE, parent_p = 0.3, beta_params = c(0.1, 1))
+#' # Null node p-value if parent_p=0.05 all should be greater than or equal to .05
+#' draw_node_p_value(FALSE, parent_p = 0.05, beta_params = c(0.1, 1))
 #'
-#' # Alt node p-value if parent_p=0.3
-#' draw_node_p_value(TRUE, parent_p = 0.3, beta_params = c(0.1, 1))
+#' # Alt node p-value if parent_p=0.05 all should be greater than or equal to .05
+#' draw_node_p_value(TRUE, parent_p = 0.05, beta_params = c(0.1, 1))
 #'
 #' @export
-draw_node_p_value <- function(isAlt, parent_p, beta_params) {
-  if (isAlt) {
-    rawBeta <- rbeta(1, beta_params[1], beta_params[2])
-    parent_p + (1 - parent_p) * rawBeta
+draw_node_p_value <- function(is_alt, parent_p, beta_params) {
+  if (is_alt) {
+    raw_beta_p <- rbeta(1, beta_params[1], beta_params[2])
+    parent_p + (1 - parent_p) * raw_beta_p
   } else {
     runif(1, min = parent_p, max = 1)
   }
@@ -227,14 +267,12 @@ local_simes <- function(pvals_children) {
 #'
 #' @description Performs one realization of the top-down testing with strict gating
 #'   (\eqn{p > \alpha} stops further testing) plus a local Simes gate for each parent.
+#' TODO maybe this should just apply the local Simes gate rather than do the whole thing?
 #'
-#' @param k Integer; branching factor.
-#' @param l Integer; depth of the tree (0-based).
+#'  @param tree_info; a list object like that created by \code{\link{get_level_info}}.
 #' @param alpha Numeric in \eqn{(0,1)}; the significance level threshold.
 #' @param alt Logical vector of length \eqn{\sum_{d=0}^{l} k^d}, indicating which nodes
 #'   are non-null (\code{TRUE}) vs. null (\code{FALSE}).
-#' @param level_offsets Integer vector, part of \code{\link{get_level_info}} output.
-#' @param level_sizes Integer vector, part of \code{\link{get_level_info}} output.
 #' @param beta_params Numeric vector of length 2 for the Beta distribution
 #'   parameters of alternative nodes (see \code{\link{draw_node_p_value}}).
 #' @param local_adj_fn A function that takes the child p-values of a node and returns a single value (like the min or max p-value) that can be used to decide on a local gating procedure. For now the default is the \code{local_simes} function.
@@ -254,80 +292,109 @@ local_simes <- function(pvals_children) {
 #' }
 #'
 #' @return A logical scalar: \code{TRUE} if at least one null node was
-#'   \eqn{\le \alpha} (false rejection) in this single run, \code{FALSE} otherwise.
+#'   \eqn{\le \alpha} (false rejection) in this single run, \code{FALSE} otherwise. TODO maybe track FDR later.
 #'
 #' @seealso \code{\link{simulate_hier_simes_local_modular}}
 #'
 #' @examples
 #' info <- get_level_info(k = 2, l = 2)
-#' alt_vec <- assign_alt(
-#'   k = 2, l = 2, t = 0.5,
-#'   level_offsets = info$level_offsets, level_sizes = info$level_sizes
-#' )
-#' simulate_single_run(
-#'   k = 2, l = 2, alpha = 0.05, alt_vec,
-#'   level_offsets = info$level_offsets, level_sizes = info$level_sizes, beta_params = c(0.1, 1)
-#' )
+#' alt_vec <- assign_alt(t = 0.5, tree_info = info)
+#' simulate_single_run(tree_info = info, alpha = 0.05, alt = alt_vec, beta_params = c(0.1, 1))
 #'
 #' @export
-simulate_single_run <- function(k, l, alpha, alt, level_offsets, level_sizes, beta_params, local_adjust_fn = local_simes) {
-  n_tot <- sum(level_sizes)
+simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust_fn = local_simes) {
+  k <- tree_info$k
+  l <- tree_info$l
+  level_offsets <- tree_info$level_offsets
+  level_sizes <- tree_info$level_sizes
+  n_tot <- tree_info$n_tot
+
+  ## Initialize some variables
+  node_idx <- seq(1, n_tot)
   pvals <- rep(NA_real_, n_tot)
   tested <- rep(FALSE, n_tot)
-
   false_reject <- FALSE
 
   # Root
   root_idx <- 1
-  pvals[root_idx] <- draw_node_p_value(alt[root_idx], 0, beta_params)
+  pvals[root_idx] <- draw_node_p_value(is_alt = alt[root_idx], parent_p = 0, beta_params = beta_params)
   tested[root_idx] <- TRUE
+  ## If the root is FALSE and p <= alpha, then we have a false_rejection
   if (!alt[root_idx] && pvals[root_idx] <= alpha) {
     false_reject <- TRUE
+    ## We do not have to continue the simulation since FWER is **any** false rejection.
+    return(false_reject)
   }
 
-  # Traverse level by level
-  for (d in seq_len(l)) {
-    start_d <- level_offsets[d + 1] + 1
-    end_d <- level_offsets[d + 1] + level_sizes[d + 1]
-    nodeRange <- seq(start_d, end_d)
+  ## If didn't reject the root but it was a non-null effect, this is a power
+  ## problem but not a false rejection. Regardless, we cannot continue testing.
+  if (!alt[root_idx] && pvals[root_idx] > alpha) {
+    false_reject <- FALSE
+    return(false_reject)
+  }
 
-    # Parents that are tested and p <= alpha
-    tested_parents <- nodeRange[tested[nodeRange] & (pvals[nodeRange] <= alpha)]
-    if (!length(tested_parents)) next
+  # Level 1
+  idx_l1 <- children_indices(d = 0, j = 1, tree_info = tree_info)
+  # Draw p-values for them all
+  for (i in idx_l1) {
+    pvals[i] <- draw_node_p_value(is_alt = alt[i], parent_p = pvals[root_idx], beta_params = beta_params)
+  }
+  local_adj_l1 <- local_adjust_fn(pvals[idx_l1])
+  ## if local_adj_l1 <= alpha and at least one of the nodes is non-null go to next level otherwise return false_reject <- FALSE
+  if (local_adj_l1 > alpha) {
+    false_reject <- FALSE
+    return(false_reject)
+  }
 
-    for (parent_idx in tested_parents) {
-      # local index j for the parent at level d
-      j <- parent_idx - level_offsets[d + 1]
+  ## If all of the nodes are FALSE (i.e. null) but we reject using the local
+  ## adjustment, then this is a false rejection (at least one false rejection)
+  ## If we reject using the local adjustment and at least one of the nodes is
+  ## non-null, then this is not a false rejection --- if that node p <= alpha,
+  ## we will continue down the tree.
 
-      # identify children
-      child_inds <- children_indices(d, j, k, level_offsets)
-      if (!length(child_inds)) next
+  if (local_adj_l1 <= alpha && all(!alt[idx_l1])) {
+    false_reject <- TRUE
+    return(false_reject)
+  }
 
-      # draw child p-values
-      parent_p <- pvals[parent_idx]
-      child_pvals <- numeric(k)
-      for (iC in seq_len(k)) {
-        c_idx <- child_inds[iC]
-        child_pvals[iC] <- draw_node_p_value(alt[c_idx], parent_p, beta_params)
+  ## If we have a global reject across the three nodes and node level rejection
+  ## of a node that should not have been rejected -- alt=FALSE, then this is a
+  ## false rejection. No need to continue the simulation to look for others.
+
+  if (local_adj_l1 <= alpha & any(pvals[idx_l1] <= alpha & !alt[idx_l1])) {
+    false_reject <- TRUE
+    return(false_reject)
+  }
+
+  level_idxs <- c(0, rep(seq_len(l), k^seq_len(l)))
+
+  ## Loop over the global indices of the nodes at level d>2
+  node_gate <- list()
+  for (d in seq(2, l)) {
+    parent_level <- d - 1
+    parent_idxs_raw <- node_idx[level_idxs == parent_level]
+    ## You can only go on with testing if the node p <= alpha
+    parent_idxs_non_gated <- parent_idxs_raw[pvals[parent_idxs_raw] <= alpha]
+    ## This next is mostly because I'm avoiding names for memory reasons
+    ## Not elegant to replace values like this
+    node_gate[[d - 1]] <- parent_idxs_non_gated
+    ## Loop over the nodes that have pvals <= alpha
+    for (i in parent_idxs_non_gated) {
+      local_idx <- i - tree_info$level_offsets[d]
+      child_idxs <- children_indices(d = parent_level, j = local_idx, tree_info = tree_info)
+      for (j in child_idxs) {
+        pvals[j] <- draw_node_p_value(is_alt = alt[j], parent_p = pvals[i], beta_params = beta_params)
       }
-      pvals[child_inds] <- child_pvals
-      tested[child_inds] <- TRUE
+      local_adj <- local_adjust_fn(pvals[child_idxs])
 
-      # check false rejections among children
-      null_children <- (!alt[child_inds])
-      if (any(null_children & (child_pvals <= alpha))) {
-        false_reject <- TRUE
-      }
-
-      # local Simes test
-      # simes_p <- local_simes(child_pvals)
-      local_p <- local_adjust_fn(child_pvals)
-      if (local_p > alpha) {
-        # block deeper testing from these children
-        pvals[child_inds] <- alpha + 1e-8
+      ## Assign **all** pvals for these children to be a bit higher than alpha
+      ## if we can't pass the local adjustment
+      if (local_adj > alpha) {
+        pvals[child_idxs] <- alpha + 1e-8
       }
     }
   }
+  ## Continue testing for nodes with node_gate==0
 
   false_reject
 }

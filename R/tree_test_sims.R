@@ -237,32 +237,6 @@ draw_node_p_value <- function(is_alt, parent_p, beta_params) {
   }
 }
 
-#' @title Compute local Simes p-value for a Vector of Child p-values
-#'
-#' @description Given \eqn{k} child p-values, computes the Simes p-value
-#'   \eqn{\min_{i=1\ldots k} \{ (k/i) * p_{(i)} \}}, where \eqn{p_{(1)} \le \ldots \le p_{(k)}}.
-#'
-#' @param pvals_children Numeric vector of child p-values.
-#'
-#' @details The Simes p-value is a valid test for the intersection hypothesis
-#'   \eqn{H_{\cap} : \text{all child hypotheses are null}}, under certain independence
-#'   or positive dependence conditions among the p-values.
-#'
-#' @return A single numeric value: the Simes combination p-value.
-#'
-#' @examples
-#' local_simes(c(0.01, 0.04, 0.10, 0.20))
-#'
-#' @export
-local_simes <- function(pvals_children) {
-  k <- length(pvals_children)
-  sort_p <- sort(pvals_children)
-  i_seq <- seq_len(k)
-  simes_vals <- (k / i_seq) * sort_p
-  min(simes_vals)
-}
-## NOTE maybe TODO: we could use hommel(pvals_children,simes=TRUE) from the hommel package here too.
-
 #' @title Simulate a Single Top-Down Run of the Hierarchical Simes Procedure
 #'
 #' @description Performs one realization of the top-down testing with strict gating
@@ -275,7 +249,7 @@ local_simes <- function(pvals_children) {
 #'   are non-null (\code{TRUE}) vs. null (\code{FALSE}).
 #' @param beta_params Numeric vector of length 2 for the Beta distribution
 #'   parameters of alternative nodes (see \code{\link{draw_node_p_value}}).
-#' @param local_adj_fn A function that takes the child p-values of a node and returns a single value (like the min or max p-value) that can be used to decide on a local gating procedure. For now the default is the \code{local_simes} function.
+#' @param local_adjust_fn A function that takes the child p-values of a node and returns a single value (like the min or max p-value) that can be used to decide on a local gating procedure. For now the default is the \code{local_simes} function.
 #' @details
 #' \enumerate{
 #'   \item The root node (level 0) is tested unconditionally:
@@ -294,7 +268,7 @@ local_simes <- function(pvals_children) {
 #' @return A logical scalar: \code{TRUE} if at least one null node was
 #'   \eqn{\le \alpha} (false rejection) in this single run, \code{FALSE} otherwise. TODO maybe track FDR later.
 #'
-#' @seealso \code{\link{simulate_hier_simes_local_modular}}
+#' @seealso \code{\link{simulate_many_runs}}
 #'
 #' @examples
 #' info <- get_level_info(k = 2, l = 2)
@@ -431,24 +405,27 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
   return(false_reject)
 }
 
-#' @title Monte Carlo Simulation of a Hierarchical Simes-Gated Testing Procedure
+#' @title Monte Carlo Simulation of a Hierarchical Gated Testing Procedure
 #'
 #' @description Repeats \code{n_sim} independent realizations of the following steps:
 #'   \enumerate{
-#'     \item Randomly assign half the leaves as alt with probability \code{t},
-#'           and propagate alt status upward.
+#'     \item Create a k-ary tree with \code{k} nodes per level and \code{l} levels
+#'     \item Randomly assign \code{t} proportion of the leaves (nodes with no children) as alt,
+#'           and propagate alt status upward. Here alt means non-null treatment effect
 #'     \item Perform a top-down testing procedure with:
 #'       \itemize{
 #'         \item strict gating: if a node's p-value \eqn{> \alpha}, do not test children
-#'         \item local Simes: among each parent's \eqn{k} children, if the Simes p-value
-#'               \eqn{> \alpha}, block deeper descendants
+#'         \item local gating: among each parent's \eqn{k} children, if the local version of a
+#'                globaltest that produces a p-value
+#'               \eqn{> \alpha}, block deeper descendants. By default we use the Simes
+#'               procedure for the children of each parent for this local gate.
 #'         \item monotonic p-values: null => \eqn{\mathrm{Uniform}(\text{parent\_p},1)},
 #'               alt => scaled \eqn{\mathrm{Beta}(a,b)} to \eqn{[\text{parent\_p},1]}
-#'       \item track any null node \eqn{\le \alpha} as a false rejection
-#'       }
+#'       \item track any null node (a non-alt node) \eqn{\le \alpha} as a false rejection
 #'     \item Estimate the familywise error rate (FWER) as
 #'           the fraction of runs in which at least one null node was \eqn{\le \alpha}.
 #'   }
+#' }
 #'
 #' @param n_sim Number of simulation replicates.
 #' @param k Integer; branching factor.
@@ -457,6 +434,10 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
 #' @param alpha Numeric in \eqn{(0,1)}; significance level threshold.
 #' @param beta_params Numeric vector of length 2, \code{c(a,b)}, specifying Beta(a,b)
 #'   for alt nodes. The final alt p-value is scaled to be in \eqn{[\text{parent\_p},1]}.
+#' @param local_adjust_fn A function that takes the child p-values of a node
+#' and returns a single value (like the min or max p-value) that can be used to
+#' decide on a local gating procedure. For now the default is the
+#' \code{local_simes} function.
 #'
 #' @return A numeric estimate of the familywise error rate:
 #'   the proportion of runs that had at least one null node p-value \eqn{\le \alpha}.
@@ -466,44 +447,42 @@ simulate_single_run <- function(tree_info, alpha, alt, beta_params, local_adjust
 #' @examples
 #' \dontrun{
 #' set.seed(123)
-#' fwer_est <- simulate_hier_simes_local_modular(
+#' fwer_est <- simulate_many_runs(
 #'   n_sim = 2000,
 #'   k = 2,
 #'   l = 3,
 #'   t = 0.5,
 #'   alpha = 0.05,
-#'   beta_params = c(0.1, 1)
+#'   beta_params = c(0.1, 1),
+#'   local_adjust_fn = local_simes
 #' )
 #' fwer_est
 #' }
 #'
 #' @export
-simulate_hier_simes_local_modular <- function(n_sim = 10000,
-                                              k = 2,
-                                              l = 3,
-                                              t = 0.5,
-                                              alpha = 0.05,
-                                              beta_params = c(0.1, 1),
-                                              adjfn = local_simes) {
+simulate_many_runs <- function(n_sim = 10000,
+                               k = 2,
+                               l = 3,
+                               t = 0.5,
+                               alpha = 0.05,
+                               beta_params = c(0.1, 1),
+                               local_adjust_fn = local_simes) {
   info <- get_level_info(k, l)
   off <- info$level_offsets
   sizes <- info$level_sizes
-
-  false_count <- 0
-
-  for (rep in seq_len(n_sim)) {
-    # 1) alt assignment
-    alt_vec <- assign_alt(k, l, t, off, sizes)
-
-    # 2) single run
-    had_false_rej <- simulate_single_run(k, l, alpha, alt_vec, off, sizes, beta_params)
-
-    if (had_false_rej) {
-      false_count <- false_count + 1
-    }
-  }
+  alt_vec <- assign_alt(t = t, tree_info = info)
+  out_reps <- replicate(
+    n_sim,
+    simulate_single_run(
+      tree_info = info,
+      alpha = alpha,
+      alt = alt_vec,
+      beta_params = beta_params,
+      local_adjust_fn = local_adjust_fn
+    )
+  )
 
   # fraction that had false rejection => FWER estimate
-  fwer <- false_count / n_sim
-  fwer
+  fwer <- mean(out_reps)
+  return(fwer)
 }

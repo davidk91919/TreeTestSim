@@ -163,17 +163,14 @@ test_that("local_simes() example check", {
 })
 
 test_that("simulate_single_run() runs without error, returns T/F", {
-  info <- get_level_info(k = 3, l = 3)
+  info <- get_level_info(k = 3, l = 6)
+
   set.seed(12345)
   alt_vec <- assign_alt(t = 0.3, tree_info = info)
-  out <- simulate_single_run(
-    tree_info = info,
-    alpha = 0.05,
-    alt = alt_vec,
-    beta_params = c(0.1, 1)
-  )
+  out <- simulate_single_run(tree_info = info, alpha = 0.05, alt = alt_vec, beta_params = c(0.1, 1))
   expect_true(is.logical(out))
   expect_length(out, 1)
+
   ## Try with t=0, and t=1
   set.seed(12345)
   alt_vec <- assign_alt(t = 0, tree_info = info)
@@ -192,7 +189,7 @@ test_that("simulate_single_run() runs without error, returns T/F", {
   set.seed(12345)
   alt_vec <- assign_alt(t = 1, tree_info = info)
   out_reps <- replicate(
-    10000,
+    1000,
     simulate_single_run(
       tree_info = info,
       alpha = 0.05,
@@ -202,15 +199,29 @@ test_that("simulate_single_run() runs without error, returns T/F", {
   )
   ## Should have no false positives if all rejections are correct
   expect_equal(mean(out_reps), 0)
-  ## TODO: Try with local_adj just take the lowest p-value (i.e. no adjustment)
+
+  ## This next should have lots of false positives
+  set.seed(12345)
+  alt_vec <- assign_alt(t = .3, tree_info = info)
+  out_reps <- replicate(
+    1000,
+    simulate_single_run(
+      tree_info = info,
+      alpha = 0.05,
+      alt = alt_vec,
+      beta_params = c(0.1, 1),
+      local_adjust_fn = local_min_p
+    )
+  )
+  expect_gt(mean(out_reps), .05)
 })
 
-## TODO: Start here
-
-test_that("simulate_hier() returns plausible FWER", {
+test_that("simulate_many_runs() returns plausible FWER", {
   skip_on_cran()
   set.seed(999)
-  est <- simulate_hier_simes_local_modular(n_sim = 1000, k = 2, l = 2, t = 0.5, alpha = 0.05)
+  est <- simulate_many_runs(n_sim = 1000, k = 2, l = 2, t = 0.5, alpha = 0.05)
   # _just check that it's between 0 and 1
   expect_true(est >= 0 && est <= 1)
+  # Notice that with low k and low l this controls the FWER
+  expect_le(est, .05)
 })

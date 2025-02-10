@@ -44,5 +44,5 @@ test_that("simulate_FWER returns a value between 0 and 1", {
   print(fwer_mixed)
 })
 
-# TODO: check power, check and stop if effN becomes too low (like if effN ==1 stop)
+# TODO: check power, check and stop if effN becomes too low (like if effN ==1 stop). Check power for bottom up.
 ## I think that hommel()$adjusted or p.adjust(ps,method="hommel") will be more conservative than max(simes_p,thep).

@@ -14,7 +14,6 @@
 #'
 #' @examples
 #' local_simes(c(0.01, 0.04, 0.10, 0.20))
-#'
 #' @export
 local_simes <- function(pvals_children, alpha = .05) {
   k <- length(pvals_children)
@@ -23,7 +22,27 @@ local_simes <- function(pvals_children, alpha = .05) {
   simes_vals <- (k / i_seq) * sort_p
   min(simes_vals)
 }
-## NOTE maybe TODO: we could use hommel(pvals_children,simes=TRUE) from the hommel package here too.
+
+#' @title Compute local Hommel p-value for a Vector of Child p-values
+#'
+#' @description Given \eqn{k} child p-values, computes the Hommell adjusted p-values
+#'
+#' @param pvals_children Numeric vector of child p-values.
+#' @param alpha Numeric scalar of alpha (not used in this function)
+#'
+#' @details TODO The Hommel adjustment and the hommel package is faster than p.adjust().
+#'
+#' @return A vector of adjusted p-values
+#'
+#' @examples
+#' local_simes(c(0.01, 0.04, 0.10, 0.20))
+#'
+#' @Importfrom hommel homel
+#' @export
+local_hommel_all_ps <- function(pvals_children, alpha = .05) {
+  adj_p_vals <- hommel(pvals_children)@adjusted
+  adj_vals
+}
 
 #' @title Unadjusted local step
 #'

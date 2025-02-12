@@ -135,8 +135,8 @@ simulate_test <- function(node, parent_p, alpha, k, effN, N_total, beta_base) {
 #' @export
 simulate_FWER <- function(n_sim, t, k, max_level, alpha, N_total, beta_base = 0.1) {
   false_count <- numeric(length = n_sim)
+  tree <- generate_tree(level = 0, max_level = max_level, k = k, t = t)
   for (sim in 1:n_sim) {
-    tree <- generate_tree(level = 0, max_level = max_level, k = k, t = t)
     res <- simulate_test(tree,
       parent_p = 0, alpha = alpha, k = k,
       effN = N_total, N_total = N_total, beta_base = beta_base

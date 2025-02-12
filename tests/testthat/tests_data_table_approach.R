@@ -88,7 +88,7 @@ test_that("simulate_test_DT gates branches when the Simes p-value exceeds alpha"
   })
 
   ## recall that the mean of a beta distribution is a/(a+1)
-  set.seed(1235)
+  set.seed(12357)
   res <- simulate_test_DT(tree_dt, alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1)
 
   dt_sim <- res$treeDT

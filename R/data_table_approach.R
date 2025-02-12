@@ -125,9 +125,11 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
   # Work on a copy so that the original tree is preserved.
   tree_sim <- copy(treeDT)
   tree_sim[, p_val := NA_real_]
+  setkey(tree_sim, "node")
 
   # --- Level 0: Simulate for the root.
-  tree_sim[node == 1, p_val := ifelse(nonnull,
+  tree_sim[node == 1, p_val := fifelse(
+    nonnull,
     ## 0 + (1 - 0) * rbeta(1, beta_base * sqrt(effN / N_total), 1),
     rbeta(1, beta_base, 1),
     runif(1, min = 0, max = 1)
@@ -165,10 +167,14 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     }
     # For each child, retrieve its parent's p-value.
     parents <- tree_sim[, .(parent = node, parent_p = p_val)]
-    child_rows <- merge(child_rows, parents, by = "parent", all.x = TRUE, sort = FALSE)
+    setkey(parents, "parent")
+    setkey(child_rows, "parent")
+    child_rows <- parents[child_rows]
+    ## child_rows <- merge(child_rows, parents, by = "parent", all.x = TRUE, sort = FALSE)
 
     # draw local p-values. the beta p-values are rescaled to go from parent_p to 1.
-    child_rows[, p_sim := ifelse(nonnull,
+    child_rows[, p_sim := fifelse(
+      nonnull,
       parent_p + (1 - parent_p) * rbeta(.N, effective_beta, 1),
       runif(.N, min = parent_p, max = 1)
     )]
@@ -195,7 +201,8 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     child_rows[local_adj_p <= alpha, p_val := pmax(local_adj_p, p_val)]
 
     # Update the main table.
-    tree_sim[node %in% child_rows$node, p_val := child_rows$p_val]
+    ## tree_sim[node %in% child_rows$node, p_val := child_rows$p_val]
+    tree_sim[child_rows$node, p_val := child_rows$p_val]
   }
 
   # Record a false error if any truly null node that was tested (i.e. has a non-NA p-value)
@@ -246,14 +253,16 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
 #' print(fwer)
 #'
 #' @export
-simulate_FWER_DT <- function(n_sim, t, k, max_level, alpha, N_total, beta_base = 0.1) {
-  false_count <- 0
+simulate_many_runs_DT <- function(n_sim, t, k, max_level, alpha, N_total, beta_base = 0.1,
+                                  adj_effN = TRUE, local_adj_p_fn = local_simes, return_details = FALSE) {
+  treeDT <- generate_tree_DT(max_level, k, t)
+  false_count <- numeric(length = n_sim)
   for (sim in 1:n_sim) {
-    treeDT <- generate_tree_DT(max_level, k, t)
-    res <- simulate_test_DT(treeDT, alpha, k, effN = N_total, N_total = N_total, beta_base = beta_base)
-    if (res$false_error) {
-      false_count <- false_count + 1
-    }
+    res <- simulate_test_DT(treeDT, alpha, k,
+      effN = N_total, N_total = N_total, beta_base = beta_base,
+      adj_effN = adj_effN, local_adj_p_fn = local_adj_p_fn, return_details = return_details
+    )
+    false_count[sim] <- res$false_error
   }
-  false_count / n_sim
+  return(mean(false_count))
 }

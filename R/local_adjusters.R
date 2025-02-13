@@ -37,7 +37,7 @@ local_simes <- function(pvals_children, alpha = .05) {
 #' @examples
 #' local_simes(c(0.01, 0.04, 0.10, 0.20))
 #'
-#' @Importfrom hommel homel
+#' @importFrom hommel hommel
 #' @export
 local_hommel_all_ps <- function(pvals_children, alpha = .05) {
   adj_p_vals <- hommel(pvals_children)@adjusted

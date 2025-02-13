@@ -158,9 +158,13 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
       # Raw effective beta based on the loss in sample size:
       ## Basically we make equal splits
       effN <- effN / k^l
+      ## And we know that power is a function of the sqrt of N.
       beta_eff_raw <- beta_base * sqrt(N_total / effN)
       # Compute the cap; note that log(0.05^(beta_base)) is beta_base*log(0.05)
-      cap <- (beta_base * log(alpha) - log(100)) / log(alpha)
+      # cap <- (beta_base * log(alpha) - log(100)) / log(alpha)
+      # mean(rbeta(10000,.9,1)<=.05)  is about .07 which is more powerful than uniform but still low power
+      # mean(rbeta(10000,.5,1)<=.05)  is about .22 which is more powerful than uniform but still low power
+      cap <- .5
       effective_beta <- min(beta_eff_raw, cap)
     } else {
       effective_beta <- beta_base

@@ -223,5 +223,5 @@ test_that("simulate_many_runs() returns plausible FWER", {
   # _just check that it's between 0 and 1
   expect_true(est >= 0 && est <= 1)
   # Notice that with low k and low l this controls the FWER
-  expect_le(est, .05)
+  expect_lt(est, .05)
 })

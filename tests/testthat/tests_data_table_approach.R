@@ -13,7 +13,7 @@ test_that("generate_tree_DT creates a complete tree with correct columns and lev
   expect_equal(nrow(tree_dt), expected_rows)
 
   # The data.table should have these columns.
-  expect_true(all(c("node", "level", "parent", "nonnull") %in% names(dt)))
+  expect_true(all(c("node", "level", "parent", "nonnull") %in% names(tree_dt)))
 
   # Check that the level assignments are correct:
   expect_equal(tree_dt[level == 0, .N], 1)
@@ -26,7 +26,7 @@ test_that("generate_tree_DT creates a complete tree with correct columns and lev
   expect_equal(tree_dt$parent, tree_dt$computed_parent)
 })
 
-test_that("generate_tree_DT propagates nonnull flags correctly for extreme t values", {
+test_that("generate_tree_DT propagates nonnull flags correctly for extreme t", {
   max_level <- 3
   k <- 3
 
@@ -92,17 +92,105 @@ test_that("simulate_test_DT gates branches when the Simes p-value exceeds alpha"
   res <- simulate_test_DT(tree_dt, alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1)
 
   dt_sim <- res$treeDT
-  # For any parent that is active, if the children branch was gated the children p_val should be NA.
-  # We check that for each parent where Simes test fails, none of its children have been assigned a p-value.
+
+  # For any parent that is active, if the children branch was gated the
+  # children p_val should be NA. We check that for each parent where Simes
+  # test fails, none of its children have been assigned a p-value.
+
+  gated_children <- dt_sim[!is.na(parent) & is.na(p_val)]
+  expect_true(nrow(gated_children) > 0)
+
+  ## check using the hommel adjustment too
+  set.seed(12357)
+  res <- simulate_test_DT(tree_dt,
+    alpha = 0.05, k = k, effN = 1000,
+    N_total = 1000, beta_base = 0.1, local_adj_p_fn = local_hommel_all_ps
+  )
+
+  dt_sim <- res$treeDT
+
+  # For any parent that is active, if the children branch was gated the
+  # children p_val should be NA. We check that for each parent where the
+  # hommel adjustment is > alpha, , none of its children have been assigned a
+  # p-value.
+
   gated_children <- dt_sim[!is.na(parent) & is.na(p_val)]
   expect_true(nrow(gated_children) > 0)
 })
 
-test_that("simulate_FWER_DT returns a value between 0 and 1", {
-  fwer <- simulate_FWER_DT(
-    n_sim = 10, t = 0.5, k = 2, max_level = 2,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1
+test_that("simulating many p-values returns a value between 0 and 1", {
+  set.seed(123456)
+
+  ## We don't even need to adjust power as we "split" in order to control the
+  ## FWER when t=0 or t=1 (which has no errors anyway and is only shown here
+  ## for completeness)
+
+  res1 <- simulate_many_runs_DT(
+    n_sim = 1000, t = 0, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
   )
-  expect_true(is.numeric(fwer))
-  expect_true(fwer >= 0 && fwer <= 1)
+  expect_true(is.numeric(res1))
+  expect_true(res1 >= 0 && res1 <= 1)
+  ## Should control res1 within simulation error
+  expect_lt(res1, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  res2 <- simulate_many_runs_DT(
+    n_sim = 1000, t = 1, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
+  )
+  ## No false positives possible here
+  expect_lt(res2, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  ## But we need to more closely simulate the power loss of splitting
+  ## to control the FWER when we have a mix of nodes with effects
+
+  res3 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE
+  )
+  res3
+  expect_lt(res3, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  ## Notice that this does not hold with adj_effN=FALSE. So, we need
+  ## monotonicity and local gate but also need to reduce power when effects
+  ## are mixed.
+  res4 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
+  )
+  res4
+  expect_gt(res4, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  ## Notice that the reduction in power is doing a lot of work here even
+  ## without the local adjustment. For example, even with a large k and large l
+
+  n_nodes <- sum(3^(0:10))
+
+  ## the algorithm to reduce N is nonlinear -- starts by equal splitting by k
+  ## but never goes to 0 (it goes no further than 1/100 of the original).
+
+  res5 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 5, max_level = 5,
+    alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
+    local_adj_p_fn = local_unadj_all_ps
+  )
+  res5
+  expect_lt(res5, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  ## Even local hommel doesn't control things, although it helps
+  res6 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
+    local_adj_p_fn = local_hommel_all_ps
+  )
+  res6
+  expect_gt(res6, .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  res7 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE,
+    local_adj_p_fn = local_hommel_all_ps
+  )
+  res7
+  expect_lt(res7, .05 + sqrt(.05 * (1 - .05) / 1000))
 })

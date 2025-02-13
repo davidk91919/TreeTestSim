@@ -20,7 +20,7 @@ local_simes <- function(pvals_children, alpha = .05) {
   sort_p <- sort(pvals_children)
   i_seq <- seq_len(k)
   simes_vals <- (k / i_seq) * sort_p
-  min(simes_vals)
+  return(min(simes_vals))
 }
 
 #' @title Compute local Hommel p-value for a Vector of Child p-values
@@ -41,7 +41,7 @@ local_simes <- function(pvals_children, alpha = .05) {
 #' @export
 local_hommel_all_ps <- function(pvals_children, alpha = .05) {
   adj_p_vals <- hommel(pvals_children)@adjusted
-  adj_vals
+  return(adj_p_vals)
 }
 
 #' @title Unadjusted local step
@@ -68,4 +68,21 @@ local_min_p <- function(pvals_children, alpha = .05) {
   } else {
     return(max(p_le_alpha))
   }
+}
+
+#' @title Unadjusted local step
+#'
+#' @description Given \eqn{k} child p-values just pass them through for simulation purposes
+#'
+#'
+#' @param pvals_children Numeric vector of child p-values.
+#' @param alpha Numeric scalar of alpha
+#'
+#' @details The idea is to not adjust so that we can compare the consequences of not adjusting to adjusting
+#'
+#' @return A single numeric value: just passes through the unadjusted p values
+#'
+#' @export
+local_unadj_all_ps <- function(pvals_children, alpha = .05) {
+  pvals_children
 }

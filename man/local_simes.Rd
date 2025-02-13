@@ -25,5 +25,4 @@ or positive dependence conditions among the p-values.
 }
 \examples{
 local_simes(c(0.01, 0.04, 0.10, 0.20))
-
 }

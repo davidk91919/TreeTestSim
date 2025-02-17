@@ -106,6 +106,10 @@ generate_tree_DT <- function(max_level, k, t) {
 #' @param effN Numeric. The effective sample size at the root (assumed to decrease by a factor of k per level).
 #' @param N_total Numeric. The total sample size at the root. For now effN should be same as N_total
 #' @param beta_base Numeric. The base parameter for the beta distribution.
+#' @param  adj_effN Logical. Whether the power of the test should decrease to simulate splitting the sample size.
+#' @param  local_adj_p_fn Function. The name of a function that operates like \code{local_simes} or \code{local_hommel_all_ps} to adjust the p-values at a given node.
+#' @param  global_adj Character. The name of a function that will adjust the p-values on the leaves for comparison with the bottom-up approaches
+#' @param  return_details Logical. Whether the full data set that is simulated should be returned.
 #'
 #' @return A list with components:
 #' \describe{
@@ -121,7 +125,7 @@ generate_tree_DT <- function(max_level, k, t) {
 #'
 #' @export
 simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
-                             adj_effN = TRUE, local_adj_p_fn = local_simes, return_details = TRUE) {
+                             adj_effN = TRUE, local_adj_p_fn = local_simes, global_adj = "hommel", return_details = TRUE) {
   # Work on a copy so that the original tree is preserved.
   tree_sim <- copy(treeDT)
   tree_sim[, p_val := NA_real_]
@@ -136,6 +140,40 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
   )]
 
   max_level <- max(tree_sim$level)
+
+  ######################################## The bottom up approach #####################
+  ## For comparison with the bottom up approaches:  test in all of the leaves
+  ## according to whether they are null or nonnull using the effective sample
+  ## size (which here is capped at a power of about .22 but is otherwise
+  ## proportional to N/number of leaves
+
+  effN_leaves <- N_total / (k^max_level)
+  beta_eff_leaves_raw <- beta_base * sqrt(N_total / effN_leaves)
+  cap_leaves <- .5
+  eff_beta_leaves <- min(cap_leaves, beta_eff_leaves_raw)
+  tree_sim[
+    level == max_level,
+    p_sim := fifelse(
+      nonnull,
+      rbeta(.N, eff_beta_leaves, 1),
+      runif(.N, min = 0, max = 1)
+    )
+  ]
+
+  # Record a false error if any truly null node that was tested (i.e. has a non-NA p-value)
+  # produces a p-value <= alpha.
+  if (global_adj == "hommel") {
+    global_adj_fn <- local_hommel_all_ps
+  }
+  tree_sim[level == max_level, bottom_up_p_adj := global_adj_fn(p_sim)]
+  bottom_up_false_error <- any(tree_sim[level == max_level & nonnull == FALSE, bottom_up_p_adj] <= alpha)
+
+  ## Record number of true discoveries --- non-null nodes tested and with p <= alpha
+  bottom_up_true_discoveries <- sum(tree_sim[level == max_level & nonnull == TRUE, bottom_up_p_adj] <= alpha)
+
+  ## Record number of nodes tested
+  num_leaves <- k^max_level
+  #######################################################
 
   # --- Process level-by-level.
   for (l in 1:max_level) {
@@ -177,14 +215,18 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     ## child_rows <- merge(child_rows, parents, by = "parent", all.x = TRUE, sort = FALSE)
 
     # draw local p-values. the beta p-values are rescaled to go from parent_p to 1.
-    child_rows[, p_sim := fifelse(
+
+    ## Don't replace the p_sim already drawn for the leaves but we will enforce
+    ## monotonicity on those p-values below
+
+    child_rows[!is.na(p_sim), p_sim := fifelse(
       nonnull,
       parent_p + (1 - parent_p) * rbeta(.N, effective_beta, 1),
       runif(.N, min = parent_p, max = 1)
     )]
 
     ## add this column for debugging and testing for now.
-    child_rows[, effective_beta := effective_beta]
+    ## child_rows[, effective_beta := effective_beta]
 
     # Enforce global monotonicity.
     child_rows[, p_val := pmax(parent_p, p_sim)]
@@ -221,13 +263,17 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
 
   if (return_details) {
     return(list(
-      treeDT = tree_sim, false_error = false_error, true_discoveries = true_discoveries,
-      num_nodes_tested = num_nodes_tested
+      treeDT = tree_sim,
+      false_error = false_error, true_discoveries = true_discoveries, num_nodes_tested = num_nodes_tested,
+      bottom_up_false_error = bottom_up_false_error,
+      bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
     ))
   } else {
     return(list(
       treeDT = NA, false_error = false_error, true_discoveries = true_discoveries,
-      num_nodes_tested = num_nodes_tested
+      num_nodes_tested = num_nodes_tested,
+      bottom_up_false_error = bottom_up_false_error,
+      bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
     ))
   }
 }

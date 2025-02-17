@@ -194,3 +194,5 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res7
   expect_lt(res7, .05 + sqrt(.05 * (1 - .05) / 1000))
 })
+
+##

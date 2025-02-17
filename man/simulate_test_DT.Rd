@@ -13,6 +13,7 @@ simulate_test_DT(
   beta_base,
   adj_effN = TRUE,
   local_adj_p_fn = local_simes,
+  global_adj = "hommel",
   return_details = TRUE
 )
 }
@@ -28,6 +29,14 @@ simulate_test_DT(
 \item{N_total}{Numeric. The total sample size at the root. For now effN should be same as N_total}
 
 \item{beta_base}{Numeric. The base parameter for the beta distribution.}
+
+\item{adj_effN}{Logical. Whether the power of the test should decrease to simulate splitting the sample size.}
+
+\item{local_adj_p_fn}{Function. The name of a function that operates like \code{local_simes} or \code{local_hommel_all_ps} to adjust the p-values at a given node.}
+
+\item{global_adj}{Character. The name of a function that will adjust the p-values on the leaves for comparison with the bottom-up approaches}
+
+\item{return_details}{Logical. Whether the full data set that is simulated should be returned.}
 }
 \value{
 A list with components:

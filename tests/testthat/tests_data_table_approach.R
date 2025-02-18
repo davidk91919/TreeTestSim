@@ -52,7 +52,10 @@ test_that("simulate_test_DT produces monotonic p-values", {
   k <- 3
   t <- 0.5
   tree_dt <- generate_tree_DT(max_level, k, t)
-  res <- simulate_test_DT(tree_dt, alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1)
+  res <- simulate_test_DT(tree_dt,
+    alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1,
+    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = TRUE
+  )
 
   dt_sim <- res$treeDT
 
@@ -127,39 +130,50 @@ test_that("simulating many p-values returns a value between 0 and 1", {
 
   res1 <- simulate_many_runs_DT(
     n_sim = 1000, t = 0, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
+    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
-  expect_true(is.numeric(res1))
-  expect_true(res1 >= 0 && res1 <= 1)
-  ## Should control res1 within simulation error
-  expect_lt(res1, .05 + sqrt(.05 * (1 - .05) / 1000))
 
+  expect_true(is.numeric(res1))
+  ## exxcluding the number of leaves
+  expect_true(all(res1[-c(3, 6)] >= 0 & res1[-c(3, 6)] <= 1))
+  ## Should control res1 within simulation error
+  expect_lt(res1["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res1["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+
+  ## now for t=1
   res2 <- simulate_many_runs_DT(
     n_sim = 1000, t = 1, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
+    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   ## No false positives possible here
-  expect_lt(res2, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res2["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res2["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
 
   ## But we need to more closely simulate the power loss of splitting
   ## to control the FWER when we have a mix of nodes with effects
 
   res3 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE,
+    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   res3
-  expect_lt(res3, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res3["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res3["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
 
   ## Notice that this does not hold with adj_effN=FALSE. So, we need
   ## monotonicity and local gate but also need to reduce power when effects
   ## are mixed.
   res4 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE
+    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
+    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   res4
-  expect_gt(res4, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_gt(res4["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res4["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
 
   ## Notice that the reduction in power is doing a lot of work here even
   ## without the local adjustment. For example, even with a large k and large l

@@ -178,6 +178,7 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
   # --- Process level-by-level.
   for (l in 1:max_level) {
     # Identify active parents at level l-1 (those that were tested and had p_val <= alpha).
+    # For example, If we cannot reject at root (l-1)=0 but p_val > alpha,  the loop stops here
     active_parents <- tree_sim[level == (l - 1) & !is.na(p_val) & p_val <= alpha, node]
     if (length(active_parents) == 0) {
       break
@@ -190,8 +191,8 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     }
 
     if (adj_effN) {
-      # Assume that the effective sample size is split equally.
-      # But put a lower limit on power, say, no more than 1/100 the power of the root node
+      # Assume that the effective sample size is split equally. But put a lower
+      # limit on power, say, no more than 1/100 the power of the root node
       ## mean(rbeta(10000,.5,1)<=.05)
       # Raw effective beta based on the loss in sample size:
       ## Basically we make equal splits
@@ -200,8 +201,13 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
       beta_eff_raw <- beta_base * sqrt(N_total / effN)
       # Compute the cap; note that log(0.05^(beta_base)) is beta_base*log(0.05)
       # cap <- (beta_base * log(alpha) - log(100)) / log(alpha)
-      # mean(rbeta(10000,.9,1)<=.05)  is about .07 which is more powerful than uniform but still low power
-      # mean(rbeta(10000,.5,1)<=.05)  is about .22 which is more powerful than uniform but still low power
+      # mean(rbeta(10000,.9,1)<=.05)  is about .07 which is more powerful than
+      # uniform but still low power mean(rbeta(10000,.5,1)<=.05)  is about .22
+      # which is more powerful than uniform but still low power
+
+      # TODO: we should actually be reducing power pbeta() etc. and then
+      # stopping because in real life there are only so many blocks.
+
       cap <- .5
       effective_beta <- min(beta_eff_raw, cap)
     } else {
@@ -219,7 +225,7 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     ## Don't replace the p_sim already drawn for the leaves but we will enforce
     ## monotonicity on those p-values below
 
-    child_rows[!is.na(p_sim), p_sim := fifelse(
+    child_rows[is.na(p_sim), p_sim := fifelse(
       nonnull,
       parent_p + (1 - parent_p) * rbeta(.N, effective_beta, 1),
       runif(.N, min = parent_p, max = 1)
@@ -256,25 +262,25 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
   false_error <- any(tree_sim[nonnull == FALSE & !is.na(p_val), p_val] <= alpha)
 
   ## Record number of true discoveries --- non-null nodes tested and with p <= alpha
+  ## Notice that a discovery on a node means that at least one of its leaves is nonnull
   true_discoveries <- sum(tree_sim[nonnull == TRUE & !is.na(p_val), p_val] <= alpha)
 
   ## Record number of nodes tested
   num_nodes_tested <- sum(!is.na(tree_sim$p_val))
 
+  ## Collect results about the tests into a data.table
+  sim_res <- data.table(
+    false_error = false_error, true_discoveries = true_discoveries, num_nodes_tested = num_nodes_tested,
+    bottom_up_false_error = bottom_up_false_error,
+    bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
+  )
+
   if (return_details) {
     return(list(
-      treeDT = tree_sim,
-      false_error = false_error, true_discoveries = true_discoveries, num_nodes_tested = num_nodes_tested,
-      bottom_up_false_error = bottom_up_false_error,
-      bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
+      treeDT = tree_sim, sim_res = sim_res
     ))
   } else {
-    return(list(
-      treeDT = NA, false_error = false_error, true_discoveries = true_discoveries,
-      num_nodes_tested = num_nodes_tested,
-      bottom_up_false_error = bottom_up_false_error,
-      bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
-    ))
+    return(sim_res)
   }
 }
 
@@ -292,6 +298,7 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
 #' @param alpha Numeric. The significance level.
 #' @param N_total Numeric. The total sample size at the root.
 #' @param beta_base Numeric. The base parameter for the Beta distribution at the root.
+#' @param return_details Logical. For now this must be FALSE.
 #'
 #' @return A numeric value in [0,1] giving the estimated FWER.
 #'
@@ -304,15 +311,20 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
 #'
 #' @export
 simulate_many_runs_DT <- function(n_sim, t, k, max_level, alpha, N_total, beta_base = 0.1,
-                                  adj_effN = TRUE, local_adj_p_fn = local_simes, return_details = FALSE) {
+                                  adj_effN = TRUE, local_adj_p_fn = local_simes, return_details = FALSE,
+                                  global_adj = "hommel") {
   treeDT <- generate_tree_DT(max_level, k, t)
-  false_count <- numeric(length = n_sim)
-  for (sim in 1:n_sim) {
-    res <- simulate_test_DT(treeDT, alpha, k,
+  res <- replicate(
+    n_sim,
+    simulate_test_DT(treeDT, alpha, k,
       effN = N_total, N_total = N_total, beta_base = beta_base,
-      adj_effN = adj_effN, local_adj_p_fn = local_adj_p_fn, return_details = return_details
-    )
-    false_count[sim] <- res$false_error
-  }
-  return(mean(false_count))
+      adj_effN = adj_effN, local_adj_p_fn = local_adj_p_fn, global_adj = global_adj, return_details = return_details
+    ),
+    simplify = FALSE
+  )
+
+  res_dt <- rbindlist(res)
+  mean_res <- unlist(res_dt[, lapply(.SD, mean)])
+
+  return(mean_res)
 }

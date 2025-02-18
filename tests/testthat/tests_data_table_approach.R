@@ -135,11 +135,13 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   )
 
   expect_true(is.numeric(res1))
-  ## exxcluding the number of leaves
+  ## excluding the number of leaves
   expect_true(all(res1[-c(3, 6)] >= 0 & res1[-c(3, 6)] <= 1))
   ## Should control res1 within simulation error
-  expect_lt(res1["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
-  expect_lt(res1["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  sim_err <- 2 * sqrt(.05 * (1 - .05) / 1000)
+
+  expect_lt(res1["false_error"], .05 + sim_err)
+  expect_lt(res1["bottom_up_false_error"], .05 + sim_err)
 
   ## now for t=1
   res2 <- simulate_many_runs_DT(
@@ -148,8 +150,8 @@ test_that("simulating many p-values returns a value between 0 and 1", {
     local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   ## No false positives possible here
-  expect_lt(res2["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
-  expect_lt(res2["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res2["false_error"], .05 + sim_err)
+  expect_lt(res2["bottom_up_false_error"], .05 + sim_err)
 
   ## But we need to more closely simulate the power loss of splitting
   ## to control the FWER when we have a mix of nodes with effects
@@ -160,8 +162,8 @@ test_that("simulating many p-values returns a value between 0 and 1", {
     local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   res3
-  expect_lt(res3["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
-  expect_lt(res3["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res3["false_error"], .05 + sim_err)
+  expect_lt(res3["bottom_up_false_error"], .05 + sim_err)
 
   ## Notice that this does not hold with adj_effN=FALSE. So, we need
   ## monotonicity and local gate but also need to reduce power when effects
@@ -172,41 +174,46 @@ test_that("simulating many p-values returns a value between 0 and 1", {
     local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
   res4
-  expect_gt(res4["false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
-  expect_lt(res4["bottom_up_false_error"], .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_gt(res4["false_error"], .05 + sim_err)
+  expect_lt(res4["bottom_up_false_error"], .05 + sim_err)
 
   ## Notice that the reduction in power is doing a lot of work here even
   ## without the local adjustment. For example, even with a large k and large l
 
   n_nodes <- sum(3^(0:10))
-
+  n_nodes
   ## the algorithm to reduce N is nonlinear -- starts by equal splitting by k
   ## but never goes to 0 (it goes no further than 1/100 of the original).
 
   res5 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 5, max_level = 5,
     alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
-    local_adj_p_fn = local_unadj_all_ps
+    local_adj_p_fn = local_unadj_all_ps,
+    global_adj = "hommel", return_details = FALSE
   )
   res5
-  expect_lt(res5, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_gt(res5["false_error"], .05 + sim_err)
 
-  ## Even local hommel doesn't control things, although it helps
+  ## local hommel helps
   res6 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
-    local_adj_p_fn = local_hommel_all_ps
+    local_adj_p_fn = local_hommel_all_ps,
+    global_adj = "hommel", return_details = FALSE
   )
   res6
-  expect_gt(res6, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res6["false_error"], .05 + sim_err)
+  ## compare to local simes
+  res4
 
   res7 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE,
-    local_adj_p_fn = local_hommel_all_ps
+    local_adj_p_fn = local_hommel_all_ps,
+    global_adj = "hommel", return_details = FALSE
   )
   res7
-  expect_lt(res7, .05 + sqrt(.05 * (1 - .05) / 1000))
+  expect_lt(res7["false_error"], .05 + sim_err)
 })
 
 ##

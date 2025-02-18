@@ -14,7 +14,8 @@ simulate_many_runs_DT(
   beta_base = 0.1,
   adj_effN = TRUE,
   local_adj_p_fn = local_simes,
-  return_details = FALSE
+  return_details = FALSE,
+  global_adj = "hommel"
 )
 }
 \arguments{
@@ -31,6 +32,8 @@ simulate_many_runs_DT(
 \item{N_total}{Numeric. The total sample size at the root.}
 
 \item{beta_base}{Numeric. The base parameter for the Beta distribution at the root.}
+
+\item{return_details}{Logical. For now this must be FALSE.}
 }
 \value{
 A numeric value in \link{0,1} giving the estimated FWER.

@@ -160,19 +160,23 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     )
   ]
 
-  # Record a false error if any truly null node that was tested (i.e. has a non-NA p-value)
-  # produces a p-value <= alpha.
+  ## the hommel() function is faster than p.adjust(x,method="hommel") so  we use it directly, otherwise we just use p.adjust
   if (global_adj == "hommel") {
     global_adj_fn <- local_hommel_all_ps
+  } else {
+    global_adj_fun <- function(x) {
+      p.adjust(x, method = global_adj)
+    }
   }
   tree_sim[level == max_level, bottom_up_p_adj := global_adj_fn(p_sim)]
   bottom_up_false_error <- any(tree_sim[level == max_level & nonnull == FALSE, bottom_up_p_adj] <= alpha)
 
   ## Record number of true discoveries --- non-null nodes tested and with p <= alpha
   bottom_up_true_discoveries <- sum(tree_sim[level == max_level & nonnull == TRUE, bottom_up_p_adj] <= alpha)
+  bottom_up_power <- mean(tree_sim[level == max_level & nonnull == TRUE, bottom_up_p_adj] <= alpha)
 
   ## Record number of nodes tested
-  num_leaves <- k^max_level
+  num_leaves <- nrow(tree_sim[level == max_level, ])
   #######################################################
 
   # --- Process level-by-level.
@@ -257,6 +261,12 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
     tree_sim[child_rows$node, p_val := child_rows$p_val]
   }
 
+  ###### Record errors and results of the testing across the tree
+
+  ## Record number of nodes tested
+  num_nodes_tested <- sum(!is.na(tree_sim$p_val))
+  num_nonnull_nodes_tested <- sum(!is.na(tree_sim$p_val) & tree_sim$nonnull == TRUE)
+
   # Record a false error if any truly null node that was tested (i.e. has a non-NA p-value)
   # produces a p-value <= alpha.
   false_error <- any(tree_sim[nonnull == FALSE & !is.na(p_val), p_val] <= alpha)
@@ -265,14 +275,35 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
   ## Notice that a discovery on a node means that at least one of its leaves is nonnull
   true_discoveries <- sum(tree_sim[nonnull == TRUE & !is.na(p_val), p_val] <= alpha)
 
-  ## Record number of nodes tested
-  num_nodes_tested <- sum(!is.na(tree_sim$p_val))
+  ## Proportion of nonnull nodes tested where p <= alpha
+  power <- mean(tree_sim[nonnull == TRUE & !is.na(p_val), p_val] <= alpha)
+
+  ## Number of correct detections on the leaves from the top down approach
+  num_leaves_tested <- sum(tree_sim[level == max_level, !is.na(p_val)])
+  if (num_leaves_tested > 0) {
+    ## Proportion of the nonnull leaves rejected
+    leaf_power <- mean(tree_sim[level == max_level & nonnull == TRUE & !is.na(p_val), p_val] <= alpha, na.rm = TRUE)
+    ## Number of nonnull leaves rejected
+    leaf_disc <- sum(tree_sim[level == max_level & nonnull == TRUE & !is.na(p_val), p_val] <= alpha, na.rm = TRUE)
+  } else {
+    leaf_power <- NA
+    leaf_disc <- NA
+  }
 
   ## Collect results about the tests into a data.table
   sim_res <- data.table(
-    false_error = false_error, true_discoveries = true_discoveries, num_nodes_tested = num_nodes_tested,
+    num_nodes_tested = num_nodes_tested,
+    num_nonnull_nodes_tested = num_nonnull_nodes_tested,
+    false_error = false_error,
+    true_discoveries = true_discoveries,
+    power = power,
+    num_leaves_tested = num_leaves_tested,
+    leaf_power = leaf_power,
+    leaf_disc = leaf_disc,
     bottom_up_false_error = bottom_up_false_error,
-    bottom_up_true_discoveries = bottom_up_true_discoveries, num_leaves = num_leaves
+    bottom_up_true_discoveries = bottom_up_true_discoveries,
+    bottom_up_power = bottom_up_power,
+    num_leaves = num_leaves
   )
 
   if (return_details) {
@@ -324,7 +355,7 @@ simulate_many_runs_DT <- function(n_sim, t, k, max_level, alpha, N_total, beta_b
   )
 
   res_dt <- rbindlist(res)
-  mean_res <- unlist(res_dt[, lapply(.SD, mean)])
+  mean_res <- unlist(res_dt[, lapply(.SD, mean, na.rm = TRUE)])
 
   return(mean_res)
 }

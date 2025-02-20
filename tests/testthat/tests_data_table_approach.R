@@ -134,24 +134,47 @@ test_that("simulating many p-values returns a value between 0 and 1", {
     local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
 
+  ## On average does only one single test and doesn't reject
+  res1
   expect_true(is.numeric(res1))
-  ## excluding the number of leaves
-  expect_true(all(res1[-c(3, 6)] >= 0 & res1[-c(3, 6)] <= 1))
   ## Should control res1 within simulation error
   sim_err <- 2 * sqrt(.05 * (1 - .05) / 1000)
 
   expect_lt(res1["false_error"], .05 + sim_err)
   expect_lt(res1["bottom_up_false_error"], .05 + sim_err)
 
+  ## Power does not have meaning when all hypotheses are true
+  expect_equal(res1[["power"]], NaN)
+  expect_equal(res1[["bottom_up_power"]], NaN)
+
   ## now for t=1
+  set.seed(12345)
   res2 <- simulate_many_runs_DT(
     n_sim = 1000, t = 1, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
     local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
   )
+
+  ## Total nodes
+  sum(3^seq(0, 3))
+  (3^(3 + 1) - 1) / (3 - 1)
+  ## Total leaves
+  3^3
+
+  ## On average we test about 9 nodes --- all of which are nonnull no surprise
+  ## here. On average we make about 6 true discoveries. On average the
+  ## proportion of true discoveries of non-null nodes tested is about .55. We
+  ## do get to the leaves in this case --- tending to test about 2 of the 27
+  ## leaves and rejecting correcting about 2.5 of them.
+
+  res2
   ## No false positives possible here
+  ## We should have more power than the bottom up approach
+  ## Although we might do fewer tests
   expect_lt(res2["false_error"], .05 + sim_err)
   expect_lt(res2["bottom_up_false_error"], .05 + sim_err)
+  expect_lt(res2["bottom_up_power"], res2["power"])
+  expect_lt(res2["bottom_up_power"], res2["leaf_power"])
 
   ## But we need to more closely simulate the power loss of splitting
   ## to control the FWER when we have a mix of nodes with effects
@@ -164,6 +187,7 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res3
   expect_lt(res3["false_error"], .05 + sim_err)
   expect_lt(res3["bottom_up_false_error"], .05 + sim_err)
+  expect_lt(res3["bottom_up_power"], res3["leaf_power"])
 
   ## Notice that this does not hold with adj_effN=FALSE. So, we need
   ## monotonicity and local gate but also need to reduce power when effects
@@ -179,11 +203,11 @@ test_that("simulating many p-values returns a value between 0 and 1", {
 
   ## Notice that the reduction in power is doing a lot of work here even
   ## without the local adjustment. For example, even with a large k and large l
-
-  n_nodes <- sum(3^(0:10))
-  n_nodes
   ## the algorithm to reduce N is nonlinear -- starts by equal splitting by k
   ## but never goes to 0 (it goes no further than 1/100 of the original).
+  ## this next:
+
+  (5^(5 + 1) - 1) / (5 - 1)
 
   res5 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 5, max_level = 5,
@@ -215,5 +239,7 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res7
   expect_lt(res7["false_error"], .05 + sim_err)
 })
+
+## TODO: Should we get max nodes tested and min? How to make a fair power comparison? Like number of nonnull leaves rejected?
 
 ##

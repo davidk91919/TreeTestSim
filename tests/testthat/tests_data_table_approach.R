@@ -68,11 +68,34 @@ test_that("simulate_test_DT produces monotonic p-values", {
 
   # Test that for each child, p_val is at least as high as parent's p_val.
   expect_true(all(children$p_val >= children$parent_p, na.rm = TRUE))
+
+  ## Check that this holds when we allow alpha to vary
+  ## TODO: I say "spending" here but I'm doing something specific that I think it not exactly
+  ## the same. Also this means that I'm ignoring some of the spend_frac, etc.. arguments
+  set.seed(1234)
+  res <- simulate_test_DT(tree_dt,
+    alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1,
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = TRUE, alpha_method = "spending", spend_frac = .5
+  )
+
+  dt_sim <- res$treeDT
+
+  # For each node with a parent, we require:
+  #    child p_val >= parent's p_val.
+  # Merge dt_sim with itself to obtain parent's p-values.
+  parent_p_vals <- dt_sim[, .(node, parent_p = p_val)]
+  children <- dt_sim[!is.na(parent)]
+  children <- merge(children, parent_p_vals, by.x = "parent", by.y = "node", all.x = TRUE, sort = FALSE)
+
+  # Test that for each child, p_val is at least as high as parent's p_val.
+  expect_true(all(children$p_val >= children$parent_p, na.rm = TRUE))
 })
 
-test_that("simulate_test_DT gates branches when the Simes p-value exceeds alpha", {
-  # Create a tree and force the children p-values to be high so that the Simes test fails.
-  # One way to do this is to temporarily override runif() so that it returns 1.
+test_that("simulate_test_DT gates branches when the local adjusted p-value exceeds alpha", {
+  # Create a tree and force the children p-values to be high so that the local
+  # adjusted test fails. One way to do this is to temporarily override runif()
+  # so that it returns 1.
+
   max_level <- 3
   k <- 3
   t <- 0.5
@@ -238,6 +261,8 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   )
   res7
   expect_lt(res7["false_error"], .05 + sim_err)
+
+  ## Now, look at
 })
 
 ## TODO: Should we get max nodes tested and min? How to make a fair power comparison? Like number of nonnull leaves rejected?

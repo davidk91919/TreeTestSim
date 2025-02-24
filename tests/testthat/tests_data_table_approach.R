@@ -73,12 +73,30 @@ test_that("simulate_test_DT produces monotonic p-values", {
   ## TODO: I say "spending" here but I'm doing something specific that I think it not exactly
   ## the same. Also this means that I'm ignoring some of the spend_frac, etc.. arguments
   set.seed(1234)
-  res <- simulate_test_DT(tree_dt,
+  res_spend <- simulate_test_DT(tree_dt,
     alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1,
     local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = TRUE, alpha_method = "spending", spend_frac = .5
   )
 
-  dt_sim <- res$treeDT
+  dt_sim <- res_spend$treeDT
+
+  # For each node with a parent, we require:
+  #    child p_val >= parent's p_val.
+  # Merge dt_sim with itself to obtain parent's p-values.
+  parent_p_vals <- dt_sim[, .(node, parent_p = p_val)]
+  children <- dt_sim[!is.na(parent)]
+  children <- merge(children, parent_p_vals, by.x = "parent", by.y = "node", all.x = TRUE, sort = FALSE)
+  # Test that for each child, p_val is at least as high as parent's p_val.
+  expect_true(all(children$p_val >= children$parent_p, na.rm = TRUE))
+
+  ### Now try the less conservative approach
+  set.seed(1234)
+  res_invest <- simulate_test_DT(tree_dt,
+    alpha = 0.05, k = k, effN = 1000, N_total = 1000, beta_base = 0.1,
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = TRUE, alpha_method = "investing"
+  )
+
+  dt_sim <- res_invest$treeDT
 
   # For each node with a parent, we require:
   #    child p_val >= parent's p_val.
@@ -154,7 +172,7 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res1 <- simulate_many_runs_DT(
     n_sim = 1000, t = 0, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
-    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = FALSE
   )
 
   ## On average does only one single test and doesn't reject
@@ -175,7 +193,7 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res2 <- simulate_many_runs_DT(
     n_sim = 1000, t = 1, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
-    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = FALSE
   )
 
   ## Total nodes
@@ -193,32 +211,37 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   res2
   ## No false positives possible here
   ## We should have more power than the bottom up approach
-  ## Although we might do fewer tests
+  ## Although we do fewer tests overall
   expect_lt(res2["false_error"], .05 + sim_err)
   expect_lt(res2["bottom_up_false_error"], .05 + sim_err)
   expect_lt(res2["bottom_up_power"], res2["power"])
   expect_lt(res2["bottom_up_power"], res2["leaf_power"])
 
-  ## But we need to more closely simulate the power loss of splitting
-  ## to control the FWER when we have a mix of nodes with effects
+  ### So, weak control works even when we don't split the data at each node.
+  ### This is not realistic. But nice to know.
 
+  ## Now "split the data" (i.e. reduce propostion of p<.05 from the nonnull
+  ## nodes by increasing the first parameter of rbeta)
+
+  set.seed(12345)
   res3 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE,
-    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = FALSE
   )
   res3
+  ## Here we test fewer nodes
   expect_lt(res3["false_error"], .05 + sim_err)
   expect_lt(res3["bottom_up_false_error"], .05 + sim_err)
   expect_lt(res3["bottom_up_power"], res3["leaf_power"])
 
-  ## Notice that this does not hold with adj_effN=FALSE. So, we need
+  ## Notice that strong FWER control ot hold with adj_effN=FALSE. So, we need
   ## monotonicity and local gate but also need to reduce power when effects
   ## are mixed.
   res4 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 3, max_level = 3,
     alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
-    local_adj_p_fn = local_simes, global_adj = "hommel", return_details = FALSE
+    local_adj_p_fn = local_hommel_all_ps, global_adj = "hommel", return_details = FALSE
   )
   res4
   expect_gt(res4["false_error"], .05 + sim_err)
@@ -230,8 +253,10 @@ test_that("simulating many p-values returns a value between 0 and 1", {
   ## but never goes to 0 (it goes no further than 1/100 of the original).
   ## this next:
 
+  # number of nodes is large here
   (5^(5 + 1) - 1) / (5 - 1)
 
+  set.seed(123456)
   res5 <- simulate_many_runs_DT(
     n_sim = 1000, t = .5, k = 5, max_level = 5,
     alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
@@ -239,32 +264,64 @@ test_that("simulating many p-values returns a value between 0 and 1", {
     global_adj = "hommel", return_details = FALSE
   )
   res5
+
+  ## So,the FWER is like .10 in a tree with 3000+ nodes even without local
+  ## adjustment, just monotonicity and sample splitting
+
   expect_gt(res5["false_error"], .05 + sim_err)
 
-  ## local hommel helps
+  ## local hommel doesn't really help that much
+  set.seed(123456)
   res6 <- simulate_many_runs_DT(
-    n_sim = 1000, t = .5, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = FALSE,
+    n_sim = 1000, t = .5, k = 5, max_level = 5,
+    alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = FALSE,
     local_adj_p_fn = local_hommel_all_ps,
     global_adj = "hommel", return_details = FALSE
   )
   res6
-  expect_lt(res6["false_error"], .05 + sim_err)
-  ## compare to local simes
-  res4
+  expect_gt(res6["false_error"], .05 + sim_err)
 
+
+  ## So you need the splitting and monotonicity (which does the majority of the error control work),
+  ## and then the local hommel p-value adjustment
+
+  set.seed(123456)
   res7 <- simulate_many_runs_DT(
-    n_sim = 1000, t = .5, k = 3, max_level = 3,
-    alpha = 0.05, N_total = 1000, beta_base = 0.1, adj_effN = TRUE,
+    n_sim = 1000, t = .5, k = 5, max_level = 5,
+    alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
     local_adj_p_fn = local_hommel_all_ps,
     global_adj = "hommel", return_details = FALSE
   )
   res7
+  ## Notice here strong control although the tests do not get down to the leaves
   expect_lt(res7["false_error"], .05 + sim_err)
 
-  ## Now, look at
+  ## Now, look at the kind of alpha spending/investing idea -- moderate increase in power
+  ## reduce tree size for speed
+  set.seed(123456)
+  res8 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
+    local_adj_p_fn = local_hommel_all_ps,
+    global_adj = "hommel", return_details = FALSE, alpha_method = "spending"
+  )
+  res8
+  ## Notice here strong control although the tests do not get down to the leaves
+  expect_lt(res8["false_error"], .05 + sim_err)
+  # expect_gt(res8["power"], res7["power"])
+
+  ### Now look at the alpha investing approach --- no real difference
+  set.seed(123456)
+  res9 <- simulate_many_runs_DT(
+    n_sim = 1000, t = .5, k = 3, max_level = 3,
+    alpha = 0.05, N_total = 10000000, beta_base = 0.1, adj_effN = TRUE,
+    local_adj_p_fn = local_hommel_all_ps,
+    global_adj = "hommel", return_details = FALSE, alpha_method = "investing"
+  )
+  res9
+  ## Notice here strong control although the tests do not get down to the leaves
+  expect_lt(res9["false_error"], .05 + sim_err)
 })
 
-## TODO: Should we get max nodes tested and min? How to make a fair power comparison? Like number of nonnull leaves rejected?
 
 ##

@@ -117,7 +117,9 @@ simulate_test_DT <- function(treeDT, alpha, k, effN, N_total, beta_base,
 
         child_threshold <- parent_alpha + children_alpha_adjust
       } else if (alpha_method == "investing") {
-        child_threshold <- invest_frac * parent_alpha + invest_bonus
+        ## child_threshold <- invest_frac * parent_alpha + invest_bonus
+        children_alpha_adjust <- max((parent_alpha - parent_p), 0) / k
+        child_threshold <- parent_alpha + children_alpha_adjust
       } else {
         stop("alpha_method must be one of 'fixed', 'spending', or 'investing'.")
       }
